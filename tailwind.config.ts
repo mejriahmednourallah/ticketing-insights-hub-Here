@@ -39,6 +39,16 @@ export default {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
         },
+        chart: {
+          blue: "hsl(var(--chart-blue))",
+          red: "hsl(var(--chart-red))",
+          yellow: "hsl(var(--chart-yellow))",
+          green: "hsl(var(--chart-green))",
+          orange: "hsl(var(--chart-orange))",
+          lightblue: "hsl(var(--chart-lightblue))",
+          purple: "hsl(var(--chart-purple))",
+          pink: "hsl(var(--chart-pink))",
+        },
         popover: {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
