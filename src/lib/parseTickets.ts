@@ -87,7 +87,7 @@ export function parseCSV(text: string): Ticket[] {
     const cols = parseRow(line);
     if (cols.length < 5) continue;
 
-    const createdDate = parseDate(cols[iCree] || '');
+    const createdDate = parseDate(cols[iCreeFixed] || '');
     const closedDate = parseDate(cols[iFerme] || '');
     const resolvedDate = parseDate(cols[iResolved] || '');
 
