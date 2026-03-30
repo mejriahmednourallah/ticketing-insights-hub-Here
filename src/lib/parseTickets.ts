@@ -65,13 +65,13 @@ export function parseCSV(text: string): Ticket[] {
   const iProjet = colIndex('Projet');
   const iTracker = colIndex('Tracker');
   const iStatut = colIndex('Statut');
-  const iPrio = colIndex('Priorité') !== -1 ? colIndex('Priorité') : colIndex('Priorit\u00e9');
+  const iPrio = headers.findIndex(h => h.includes('Priorit'));
   const iSujet = colIndex('Sujet');
   const iAuteur = colIndex('Auteur');
   const iAssigne = headers.findIndex(h => h.startsWith('Assign'));
-  const iCree = headers.findIndex(h => h.startsWith('Cr') && h.includes('é') || h.startsWith('Cré'));
-  const iFerme = headers.findIndex(h => h.startsWith('Ferm'));
-  const iEquipe = headers.findIndex(h => h.includes('Equipe') || h.includes('quipe'));
+  const iCree = headers.findIndex(h => h.includes('Cr') && h.includes('e') && !h.includes('Version'));
+  const iFerme = headers.findIndex(h => h.startsWith('Ferm') || h.includes('Ferm'));
+  const iEquipe = headers.findIndex(h => h.includes('quipe'));
   const iResolved = headers.findIndex(h => h.includes('Resolved'));
   const iTech = headers.findIndex(h => h.includes('CMS') || h.includes('Framework'));
   const iType = colIndex('Type');
