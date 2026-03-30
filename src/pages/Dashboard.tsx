@@ -24,8 +24,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetch('/data/issues.csv')
-      .then(r => r.text())
-      .then(text => {
+      .then(r => r.arrayBuffer())
+      .then(buf => {
+        const decoder = new TextDecoder('iso-8859-1');
+        const text = decoder.decode(buf);
         setAllTickets(parseCSV(text));
         setLoading(false);
       });
