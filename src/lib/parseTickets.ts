@@ -15,13 +15,13 @@ export interface Ticket {
   type: string;
   satisfaction: string;
   source: string;
+  fichiers: string;
   year: number | null;
   month: number | null;
 }
 
 function parseDate(str: string): Date | null {
   if (!str || str.trim() === '') return null;
-  // Format: DD/MM/YYYY or DD/MM/YYYY HH:mm
   const parts = str.trim().split(' ')[0].split('/');
   if (parts.length !== 3) return null;
   const [day, month, year] = parts.map(Number);
@@ -38,7 +38,6 @@ export function parseCSV(text: string): Ticket[] {
   const lines = text.split('\n');
   if (lines.length < 2) return [];
 
-  // Parse header
   const parseRow = (line: string): string[] => {
     const result: string[] = [];
     let current = '';
@@ -70,7 +69,7 @@ export function parseCSV(text: string): Ticket[] {
   const iAuteur = colIndex('Auteur');
   const iAssigne = headers.findIndex(h => h.startsWith('Assign'));
   const iCree = headers.findIndex(h => h.includes('Cr') && h.length < 6 && !h.includes('CMS'));
-  const iCreeFixed = iCree !== -1 ? iCree : 19; // fallback to known index
+  const iCreeFixed = iCree !== -1 ? iCree : 19;
   const iFerme = headers.findIndex(h => h.startsWith('Ferm') || h.includes('Ferm'));
   const iEquipe = headers.findIndex(h => h.includes('quipe'));
   const iResolved = headers.findIndex(h => h.includes('Resolved'));
@@ -78,6 +77,7 @@ export function parseCSV(text: string): Ticket[] {
   const iType = colIndex('Type');
   const iSatisf = headers.findIndex(h => h.includes('satisfaction'));
   const iSource = colIndex('Source');
+  const iFichiers = colIndex('Fichiers');
 
   const tickets: Ticket[] = [];
 
@@ -108,6 +108,7 @@ export function parseCSV(text: string): Ticket[] {
       type: cols[iType] || '',
       satisfaction: cols[iSatisf] || '',
       source: cols[iSource] || '',
+      fichiers: cols[iFichiers] || '',
       year: createdDate ? createdDate.getFullYear() : null,
       month: createdDate ? createdDate.getMonth() + 1 : null,
     });
