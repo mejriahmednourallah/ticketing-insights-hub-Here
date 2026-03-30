@@ -69,7 +69,8 @@ export function parseCSV(text: string): Ticket[] {
   const iSujet = colIndex('Sujet');
   const iAuteur = colIndex('Auteur');
   const iAssigne = headers.findIndex(h => h.startsWith('Assign'));
-  const iCree = headers.findIndex(h => h.includes('Cr') && h.includes('e') && !h.includes('Version'));
+  const iCree = headers.findIndex(h => h.includes('Cr') && h.length < 6 && !h.includes('CMS'));
+  const iCreeFixed = iCree !== -1 ? iCree : 19; // fallback to known index
   const iFerme = headers.findIndex(h => h.startsWith('Ferm') || h.includes('Ferm'));
   const iEquipe = headers.findIndex(h => h.includes('quipe'));
   const iResolved = headers.findIndex(h => h.includes('Resolved'));
