@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts';
 import { parseCSV, Ticket, countBy, getResolutionHoursClosed, getResolutionHoursResolved, MONTH_NAMES } from '@/lib/parseTickets';
 import KPICards from '@/components/dashboard/KPICards';
-import DashboardFilters, { Filters, emptyFilters } from '@/components/dashboard/DashboardFilters';
+import DashboardFilters, { Filters, defaultFilters, emptyFilters } from '@/components/dashboard/DashboardFilters';
 import ChartCard from '@/components/dashboard/ChartCard';
 
 const PRIORITY_COLORS: Record<string, string> = {
