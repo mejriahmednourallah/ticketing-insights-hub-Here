@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts';
+import { applyDashboardFilters, defaultFilters, Filters } from '@/lib/dashboardFilters';
 import { parseCSV, Ticket, countBy, getResolutionHoursClosed, getResolutionHoursResolved, MONTH_NAMES } from '@/lib/parseTickets';
 import KPICards from '@/components/dashboard/KPICards';
-import DashboardFilters, { Filters, defaultFilters, emptyFilters } from '@/components/dashboard/DashboardFilters';
+import DashboardFilters from '@/components/dashboard/DashboardFilters';
 import ChartCard from '@/components/dashboard/ChartCard';
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -19,7 +20,7 @@ function toChartData(counts: Record<string, number>) {
 
 export default function Dashboard() {
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
-  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [filters, setFilters] = useState<Filters>(() => ({ ...defaultFilters }));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,37 +35,7 @@ export default function Dashboard() {
   }, []);
 
   const tickets = useMemo(() => {
-    let t = allTickets;
-    if (filters.project) t = t.filter(x => x.project === filters.project);
-    if (filters.technology) t = t.filter(x => x.technology === filters.technology);
-    if (filters.priority) t = t.filter(x => x.priority === filters.priority);
-    if (filters.team) t = t.filter(x => x.team === filters.team);
-    if (filters.tracker) t = t.filter(x => x.tracker === filters.tracker);
-    if (filters.source) t = t.filter(x => x.source === filters.source);
-    if (filters.status) t = t.filter(x => x.status === filters.status);
-    if (filters.type) t = t.filter(x => x.type === filters.type);
-    if (filters.author) t = t.filter(x => x.author === filters.author);
-    if (filters.assignee) t = t.filter(x => x.assignee === filters.assignee);
-    if (filters.subject) t = t.filter(x => x.subject === filters.subject);
-    if (filters.satisfaction) t = t.filter(x => x.satisfaction === filters.satisfaction);
-    if (filters.fichiers) {
-      if (filters.fichiers === 'Oui') t = t.filter(x => x.fichiers && x.fichiers.trim() !== '');
-      else if (filters.fichiers === 'Non') t = t.filter(x => !x.fichiers || x.fichiers.trim() === '');
-    }
-    if (filters.dateFrom) {
-      const d = new Date(filters.dateFrom);
-      t = t.filter(x => x.createdDate && x.createdDate >= d);
-    }
-    if (filters.dateTo) {
-      const d = new Date(filters.dateTo);
-      t = t.filter(x => x.createdDate && x.createdDate <= d);
-    }
-    if (filters.canal) t = t.filter(x => x.canal === filters.canal);
-    if (filters.segmentClient) t = t.filter(x => x.segmentClient === filters.segmentClient);
-    if (filters.region) t = t.filter(x => x.region === filters.region);
-    if (filters.reopened) t = t.filter(x => x.reopened === filters.reopened);
-    if (filters.slaPlan) t = t.filter(x => x.slaPlan === filters.slaPlan);
-    return t;
+    return applyDashboardFilters(allTickets, filters);
   }, [allTickets, filters]);
 
   // 1. Priority (filtered status=Ouvert is handled by default filter)
