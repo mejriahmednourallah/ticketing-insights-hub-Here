@@ -16,6 +16,11 @@ export interface Filters {
   satisfaction: string;
   dateFrom: string;
   dateTo: string;
+  canal: string;
+  segmentClient: string;
+  region: string;
+  reopened: string;
+  slaPlan: string;
 }
 
 export const emptyFilters: Filters = {
@@ -23,6 +28,7 @@ export const emptyFilters: Filters = {
   source: '', status: 'Ouvert', type: '', author: '', assignee: '',
   subject: '', fichiers: '', satisfaction: '',
   dateFrom: '', dateTo: '',
+  canal: '', segmentClient: '', region: '', reopened: '', slaPlan: '',
 };
 
 interface Props {
@@ -86,6 +92,11 @@ export default function DashboardFilters({ allTickets, filters, onChange }: Prop
         <FilterSelect label="Fichiers" value={filters.fichiers} options={fichierOptions()} onChange={v => set('fichiers', v)} />
         <FilterSelect label="Degré de satisfaction" value={filters.satisfaction} options={uniqueValues(allTickets, t => t.satisfaction)} onChange={v => set('satisfaction', v)} />
         <FilterSelect label="Type" value={filters.type} options={uniqueValues(allTickets, t => t.type)} onChange={v => set('type', v)} />
+        <FilterSelect label="Canal" value={filters.canal} options={uniqueValues(allTickets, t => t.canal)} onChange={v => set('canal', v)} />
+        <FilterSelect label="Segment client" value={filters.segmentClient} options={uniqueValues(allTickets, t => t.segmentClient)} onChange={v => set('segmentClient', v)} />
+        <FilterSelect label="Région" value={filters.region} options={uniqueValues(allTickets, t => t.region)} onChange={v => set('region', v)} />
+        <FilterSelect label="Réouvert" value={filters.reopened} options={uniqueValues(allTickets, t => t.reopened)} onChange={v => set('reopened', v)} />
+        <FilterSelect label="SLA plan" value={filters.slaPlan} options={uniqueValues(allTickets, t => t.slaPlan)} onChange={v => set('slaPlan', v)} />
         <button
           onClick={() => onChange(emptyFilters)}
           className="mt-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
