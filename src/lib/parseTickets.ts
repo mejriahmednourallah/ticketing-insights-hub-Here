@@ -114,6 +114,11 @@ export function parseCSV(text: string): Ticket[] {
       satisfaction: cols[iSatisf] || '',
       source: cols[iSource] || '',
       fichiers: cols[iFichiers] || '',
+      canal: '',
+      segmentClient: '',
+      region: '',
+      reopened: '',
+      slaPlan: '',
       year: createdDate ? createdDate.getFullYear() : null,
       month: createdDate ? createdDate.getMonth() + 1 : null,
     });
