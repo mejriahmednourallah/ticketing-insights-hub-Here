@@ -1,40 +1,5 @@
+import { emptyFilters, Filters, getAttachmentFilterOptions } from '@/lib/dashboardFilters';
 import { Ticket, uniqueValues } from '@/lib/parseTickets';
-
-export interface Filters {
-  project: string;
-  technology: string;
-  priority: string;
-  team: string;
-  tracker: string;
-  source: string;
-  status: string;
-  type: string;
-  author: string;
-  assignee: string;
-  subject: string;
-  fichiers: string;
-  satisfaction: string;
-  dateFrom: string;
-  dateTo: string;
-  canal: string;
-  segmentClient: string;
-  region: string;
-  reopened: string;
-  slaPlan: string;
-}
-
-export const emptyFilters: Filters = {
-  project: '', technology: '', priority: '', team: '', tracker: '',
-  source: '', status: '', type: '', author: '', assignee: '',
-  subject: '', fichiers: '', satisfaction: '',
-  dateFrom: '', dateTo: '',
-  canal: '', segmentClient: '', region: '', reopened: '', slaPlan: '',
-};
-
-export const defaultFilters: Filters = {
-  ...emptyFilters,
-  status: 'Ouvert',
-};
 
 interface Props {
   allTickets: Ticket[];
@@ -51,7 +16,7 @@ function FilterSelect({ label, value, options, onChange }: { label: string; valu
         onChange={e => onChange(e.target.value)}
         className="rounded-md border border-border bg-card px-2 py-1.5 text-sm text-foreground focus:ring-1 focus:ring-ring w-full"
       >
-        <option value="">Tous</option>
+        <option value="">Tout</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     </div>
@@ -60,15 +25,6 @@ function FilterSelect({ label, value, options, onChange }: { label: string; valu
 
 export default function DashboardFilters({ allTickets, filters, onChange }: Props) {
   const set = (key: keyof Filters, val: string) => onChange({ ...filters, [key]: val });
-
-  const fichierOptions = () => {
-    const vals = new Set<string>();
-    allTickets.forEach(t => {
-      if (t.fichiers && t.fichiers.trim()) vals.add('Oui');
-      else vals.add('Non');
-    });
-    return Array.from(vals).sort();
-  };
 
   return (
     <div className="rounded-lg bg-card border-2 border-accent p-4 h-fit">
@@ -94,7 +50,7 @@ export default function DashboardFilters({ allTickets, filters, onChange }: Prop
         <FilterSelect label="Assigné à" value={filters.assignee} options={uniqueValues(allTickets, t => t.assignee)} onChange={v => set('assignee', v)} />
         <FilterSelect label="CMS / Framework" value={filters.technology} options={uniqueValues(allTickets, t => t.technology)} onChange={v => set('technology', v)} />
         <FilterSelect label="Sujet" value={filters.subject} options={uniqueValues(allTickets, t => t.subject)} onChange={v => set('subject', v)} />
-        <FilterSelect label="Fichiers" value={filters.fichiers} options={fichierOptions()} onChange={v => set('fichiers', v)} />
+        <FilterSelect label="Fichiers" value={filters.fichiers} options={getAttachmentFilterOptions(allTickets)} onChange={v => set('fichiers', v)} />
         <FilterSelect label="Degré de satisfaction" value={filters.satisfaction} options={uniqueValues(allTickets, t => t.satisfaction)} onChange={v => set('satisfaction', v)} />
         <FilterSelect label="Type" value={filters.type} options={uniqueValues(allTickets, t => t.type)} onChange={v => set('type', v)} />
         <FilterSelect label="Canal" value={filters.canal} options={uniqueValues(allTickets, t => t.canal)} onChange={v => set('canal', v)} />
@@ -103,7 +59,7 @@ export default function DashboardFilters({ allTickets, filters, onChange }: Prop
         <FilterSelect label="Réouvert" value={filters.reopened} options={uniqueValues(allTickets, t => t.reopened)} onChange={v => set('reopened', v)} />
         <FilterSelect label="SLA plan" value={filters.slaPlan} options={uniqueValues(allTickets, t => t.slaPlan)} onChange={v => set('slaPlan', v)} />
         <button
-          onClick={() => onChange(emptyFilters)}
+          onClick={() => onChange({ ...emptyFilters })}
           className="mt-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
         >
           Réinitialiser

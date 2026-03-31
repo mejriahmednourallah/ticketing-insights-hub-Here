@@ -16,6 +16,7 @@ export interface Ticket {
   satisfaction: string;
   source: string;
   fichiers: string;
+  hasAttachment: boolean;
   canal: string;
   segmentClient: string;
   region: string;
@@ -37,6 +38,24 @@ function parseDate(str: string): Date | null {
 function diffHours(start: Date | null, end: Date | null): number | null {
   if (!start || !end) return null;
   return (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+}
+
+function normalizeHeader(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function parseBooleanLike(value: string): boolean | null {
+  const normalized = normalizeHeader(value).replace(/_/g, '');
+  if (!normalized) return null;
+  if (['oui', 'yes', 'true', '1', 'vrai'].includes(normalized)) return true;
+  if (['non', 'no', 'false', '0', 'faux'].includes(normalized)) return false;
+  return null;
 }
 
 export function parseCSV(text: string): Ticket[] {
@@ -63,26 +82,38 @@ export function parseCSV(text: string): Ticket[] {
   };
 
   const headers = parseRow(lines[0]);
-  const colIndex = (name: string) => headers.findIndex(h => h === name);
+  const headerMap = new Map(headers.map((header, index) => [normalizeHeader(header), index]));
+  const colIndex = (...aliases: string[]) => {
+    for (const alias of aliases) {
+      const index = headerMap.get(normalizeHeader(alias));
+      if (index !== undefined) return index;
+    }
+    return -1;
+  };
+  const valueAt = (cols: string[], index: number) => (index >= 0 ? cols[index] || '' : '');
 
-  const iId = colIndex('#');
-  const iProjet = colIndex('Projet');
-  const iTracker = colIndex('Tracker');
-  const iStatut = colIndex('Statut');
-  const iPrio = headers.findIndex(h => h.includes('Priorit'));
-  const iSujet = colIndex('Sujet');
-  const iAuteur = colIndex('Auteur');
-  const iAssigne = headers.findIndex(h => h.startsWith('Assign'));
-  const iCree = headers.findIndex(h => h.includes('Cr') && h.length < 6 && !h.includes('CMS'));
-  const iCreeFixed = iCree !== -1 ? iCree : 19;
-  const iFerme = headers.findIndex(h => h.startsWith('Ferm') || h.includes('Ferm'));
-  const iEquipe = headers.findIndex(h => h.includes('quipe'));
-  const iResolved = headers.findIndex(h => h.includes('Resolved'));
-  const iTech = headers.findIndex(h => h.includes('CMS') || h.includes('Framework'));
-  const iType = colIndex('Type');
-  const iSatisf = headers.findIndex(h => h.includes('satisfaction'));
-  const iSource = colIndex('Source');
-  const iFichiers = colIndex('Fichiers');
+  const iId = colIndex('#', 'id');
+  const iProjet = colIndex('project_name', 'Projet', 'project');
+  const iTracker = colIndex('tracker');
+  const iStatut = colIndex('status', 'Statut');
+  const iPrio = colIndex('priority', 'Priorité', 'Priorite');
+  const iSujet = colIndex('sujet', 'subject');
+  const iAuteur = colIndex('auteur', 'author');
+  const iAssigne = colIndex('assigne_a', 'Assigné à', 'Assigne a', 'assignee');
+  const iCree = colIndex('created_date', 'Créé', 'Cree', 'created_at');
+  const iFerme = colIndex('closed_date', 'Fermé', 'Ferme', 'closed_at');
+  const iEquipe = colIndex('equipe_affectee', 'Equipe Affectée', 'Equipe Affectee', 'team');
+  const iResolved = colIndex('resolved_date', 'Date Resolved');
+  const iTech = colIndex('technology_used', 'CMS / Framework', 'technology');
+  const iType = colIndex('type');
+  const iSatisf = colIndex('csat_score', 'Degrè de satisfaction', 'Degré de satisfaction', 'satisfaction');
+  const iSource = colIndex('source');
+  const iFichiers = colIndex('has_attachment', 'Fichiers');
+  const iCanal = colIndex('channel', 'canal');
+  const iSegmentClient = colIndex('customer_segment', 'segment_client', 'segment client');
+  const iRegion = colIndex('region', 'région');
+  const iReopened = colIndex('reopened', 'réouvert', 'reouvert');
+  const iSlaPlan = colIndex('sla_plan', 'sla plan');
 
   const tickets: Ticket[] = [];
 
@@ -92,33 +123,36 @@ export function parseCSV(text: string): Ticket[] {
     const cols = parseRow(line);
     if (cols.length < 5) continue;
 
-    const createdDate = parseDate(cols[iCreeFixed] || '');
-    const closedDate = parseDate(cols[iFerme] || '');
-    const resolvedDate = parseDate(cols[iResolved] || '');
+    const createdDate = parseDate(valueAt(cols, iCree));
+    const closedDate = parseDate(valueAt(cols, iFerme));
+    const resolvedDate = parseDate(valueAt(cols, iResolved));
+    const attachmentValue = valueAt(cols, iFichiers);
+    const hasAttachment = parseBooleanLike(attachmentValue) ?? attachmentValue.trim() !== '';
 
     tickets.push({
-      id: cols[iId] || '',
-      project: cols[iProjet] || '',
-      tracker: cols[iTracker] || '',
-      status: cols[iStatut] || '',
-      priority: cols[iPrio] || '',
-      subject: cols[iSujet] || '',
-      author: cols[iAuteur] || '',
-      assignee: cols[iAssigne] || '',
+      id: valueAt(cols, iId),
+      project: valueAt(cols, iProjet),
+      tracker: valueAt(cols, iTracker),
+      status: valueAt(cols, iStatut),
+      priority: valueAt(cols, iPrio),
+      subject: valueAt(cols, iSujet),
+      author: valueAt(cols, iAuteur),
+      assignee: valueAt(cols, iAssigne),
       createdDate,
       closedDate,
       resolvedDate,
-      team: cols[iEquipe] || '',
-      technology: cols[iTech] || '',
-      type: cols[iType] || '',
-      satisfaction: cols[iSatisf] || '',
-      source: cols[iSource] || '',
-      fichiers: cols[iFichiers] || '',
-      canal: '',
-      segmentClient: '',
-      region: '',
-      reopened: '',
-      slaPlan: '',
+      team: valueAt(cols, iEquipe),
+      technology: valueAt(cols, iTech),
+      type: valueAt(cols, iType),
+      satisfaction: valueAt(cols, iSatisf),
+      source: valueAt(cols, iSource),
+      fichiers: attachmentValue,
+      hasAttachment,
+      canal: valueAt(cols, iCanal),
+      segmentClient: valueAt(cols, iSegmentClient),
+      region: valueAt(cols, iRegion),
+      reopened: valueAt(cols, iReopened),
+      slaPlan: valueAt(cols, iSlaPlan),
       year: createdDate ? createdDate.getFullYear() : null,
       month: createdDate ? createdDate.getMonth() + 1 : null,
     });
