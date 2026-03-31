@@ -59,6 +59,11 @@ export default function Dashboard() {
       const d = new Date(filters.dateTo);
       t = t.filter(x => x.createdDate && x.createdDate <= d);
     }
+    if (filters.canal) t = t.filter(x => x.canal === filters.canal);
+    if (filters.segmentClient) t = t.filter(x => x.segmentClient === filters.segmentClient);
+    if (filters.region) t = t.filter(x => x.region === filters.region);
+    if (filters.reopened) t = t.filter(x => x.reopened === filters.reopened);
+    if (filters.slaPlan) t = t.filter(x => x.slaPlan === filters.slaPlan);
     return t;
   }, [allTickets, filters]);
 
