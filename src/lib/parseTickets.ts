@@ -16,6 +16,11 @@ export interface Ticket {
   satisfaction: string;
   source: string;
   fichiers: string;
+  canal: string;
+  segmentClient: string;
+  region: string;
+  reopened: string;
+  slaPlan: string;
   year: number | null;
   month: number | null;
 }
