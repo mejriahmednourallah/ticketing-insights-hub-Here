@@ -19,7 +19,7 @@ function toChartData(counts: Record<string, number>) {
 
 export default function Dashboard() {
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

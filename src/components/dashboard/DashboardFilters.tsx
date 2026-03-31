@@ -25,10 +25,15 @@ export interface Filters {
 
 export const emptyFilters: Filters = {
   project: '', technology: '', priority: '', team: '', tracker: '',
-  source: '', status: 'Ouvert', type: '', author: '', assignee: '',
+  source: '', status: '', type: '', author: '', assignee: '',
   subject: '', fichiers: '', satisfaction: '',
   dateFrom: '', dateTo: '',
   canal: '', segmentClient: '', region: '', reopened: '', slaPlan: '',
+};
+
+export const defaultFilters: Filters = {
+  ...emptyFilters,
+  status: 'Ouvert',
 };
 
 interface Props {
