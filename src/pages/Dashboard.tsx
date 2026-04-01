@@ -385,6 +385,8 @@ export default function Dashboard() {
               </ResponsiveContainer>
             </ChartCard>
           </div>
+
+          <IssuesTable tickets={tickets} />
         </div>
       </div>
     </div>
