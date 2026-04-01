@@ -5,6 +5,7 @@ import { parseCSV, Ticket, countBy, getResolutionHoursClosed, getResolutionHours
 import KPICards from '@/components/dashboard/KPICards';
 import DashboardFilters from '@/components/dashboard/DashboardFilters';
 import ChartCard from '@/components/dashboard/ChartCard';
+import IssuesTable from '@/components/dashboard/IssuesTable';
 
 const PRIORITY_COLORS: Record<string, string> = {
   'Normal': '#3b82f6', 'Urgent': '#ef4444', 'Haute': '#f59e0b', 'Immédiate': '#dc2626',
@@ -111,10 +112,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl md:text-3xl font-bold text-primary">Système de Ticketing</h1>
-        <a href="/table" className="text-sm font-medium text-primary underline underline-offset-4 hover:text-primary/80">Voir la table →</a>
-      </div>
+      <h1 className="text-2xl md:text-3xl font-bold text-primary mb-2">Système de Ticketing</h1>
       <p className="text-muted-foreground mb-4 text-sm">Tableau de bord analytique — {tickets.length} tickets filtrés / {allTickets.length} total</p>
 
       <KPICards tickets={tickets} allTickets={allTickets} />
@@ -384,6 +382,8 @@ export default function Dashboard() {
               </ResponsiveContainer>
             </ChartCard>
           </div>
+
+          <IssuesTable tickets={tickets} />
         </div>
       </div>
     </div>
