@@ -5,6 +5,7 @@ import { parseCSV, Ticket, countBy, getResolutionHoursClosed, getResolutionHours
 import KPICards from '@/components/dashboard/KPICards';
 import DashboardFilters from '@/components/dashboard/DashboardFilters';
 import ChartCard from '@/components/dashboard/ChartCard';
+import IssuesTable from '@/components/dashboard/IssuesTable';
 
 const PRIORITY_COLORS: Record<string, string> = {
   'Normal': '#3b82f6', 'Urgent': '#ef4444', 'Haute': '#f59e0b', 'Immédiate': '#dc2626',
