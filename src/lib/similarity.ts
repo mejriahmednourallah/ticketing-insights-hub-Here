@@ -87,64 +87,104 @@ export interface SimilarityResult {
   idB: string;
   subjectA: string;
   subjectB: string;
-  textSimilarity: number;   // 0-1 cosine
-  numDistance: number;       // raw euclidean
-  combinedScore: number;    // 0-1 blended
+  statusB: string;
+  textSimilarity: number;
+  numDistance: number;
+  combinedScore: number;
   differences: string[];
 }
 
-export function computeSimilarities(tickets: Ticket[]): SimilarityResult[] {
-  if (tickets.length < 2) return [];
+/** Compare one reference ticket against all others. Returns sorted by combinedScore desc. */
+export function computeSimilaritiesForTicket(
+  reference: Ticket,
+  others: Ticket[],
+): SimilarityResult[] {
+  if (others.length === 0) return [];
 
-  // Build text corpus
+  const allTickets = [reference, ...others];
   const textField = (t: Ticket) => `${t.subject} ${t.type} ${t.tracker} ${t.project}`;
-  const tokenized = tickets.map(t => tokenize(textField(t)));
+  const tokenized = allTickets.map(t => tokenize(textField(t)));
   const model = buildIdf(tokenized);
   const vectors = tokenized.map(tok => tfidfVector(tok, model));
 
-  // Numerical vectors
-  const numVecs = tickets.map(ticketNumerals);
+  const refVec = vectors[0];
+  const refNum = ticketNumerals(reference);
 
-  const results: SimilarityResult[] = [];
   const rawDists: number[] = [];
+  const pairs: { idx: number; textSim: number; dist: number }[] = [];
 
-  // Pre-compute pairs
-  const pairs: { i: number; j: number; textSim: number; dist: number }[] = [];
-  for (let i = 0; i < tickets.length; i++) {
-    for (let j = i + 1; j < tickets.length; j++) {
-      const textSim = cosineSim(vectors[i], vectors[j]);
-      const dist = euclideanDist(numVecs[i], numVecs[j]);
-      rawDists.push(dist);
-      pairs.push({ i, j, textSim, dist });
-    }
+  for (let i = 1; i < allTickets.length; i++) {
+    const textSim = cosineSim(refVec, vectors[i]);
+    const dist = euclideanDist(refNum, ticketNumerals(allTickets[i]));
+    rawDists.push(dist);
+    pairs.push({ idx: i, textSim, dist });
   }
 
   const normDists = normalize01(rawDists);
 
-  for (let idx = 0; idx < pairs.length; idx++) {
-    const { i, j, textSim } = pairs[idx];
-    const normDist = normDists[idx];
-    const numSim = 1 - normDist;
-    const combined = 0.7 * textSim + 0.3 * numSim;
+  const results: SimilarityResult[] = pairs.map((p, i) => {
+    const b = allTickets[p.idx];
+    const numSim = 1 - normDists[i];
+    const combined = 0.7 * p.textSim + 0.3 * numSim;
 
     const diffs: string[] = [];
-    const a = tickets[i], b = tickets[j];
-    if (a.project !== b.project) diffs.push(`Projet: ${a.project} ≠ ${b.project}`);
-    if (a.priority !== b.priority) diffs.push(`Priorité: ${a.priority} ≠ ${b.priority}`);
-    if (a.status !== b.status) diffs.push(`Statut: ${a.status} ≠ ${b.status}`);
-    if (a.team !== b.team) diffs.push(`Équipe: ${a.team} ≠ ${b.team}`);
-    if (a.type !== b.type) diffs.push(`Type: ${a.type} ≠ ${b.type}`);
+    if (reference.project !== b.project) diffs.push(`Projet: ${reference.project} ≠ ${b.project}`);
+    if (reference.priority !== b.priority) diffs.push(`Priorité: ${reference.priority} ≠ ${b.priority}`);
+    if (reference.status !== b.status) diffs.push(`Statut: ${reference.status} ≠ ${b.status}`);
+    if (reference.team !== b.team) diffs.push(`Équipe: ${reference.team} ≠ ${b.team}`);
+    if (reference.type !== b.type) diffs.push(`Type: ${reference.type} ≠ ${b.type}`);
 
-    results.push({
-      idA: a.id, idB: b.id,
-      subjectA: a.subject, subjectB: b.subject,
-      textSimilarity: textSim,
-      numDistance: pairs[idx].dist,
+    return {
+      idA: reference.id,
+      idB: b.id,
+      subjectA: reference.subject,
+      subjectB: b.subject,
+      statusB: b.status,
+      textSimilarity: p.textSim,
+      numDistance: p.dist,
       combinedScore: combined,
       differences: diffs,
-    });
-  }
+    };
+  });
 
   results.sort((a, b) => b.combinedScore - a.combinedScore);
   return results;
+}
+
+/** Compute full NxN similarity matrix for a set of tickets (capped for perf). */
+export function computeHeatmapMatrix(tickets: Ticket[]): { ids: string[]; matrix: number[][] } {
+  const CAP = 30;
+  const subset = tickets.slice(0, CAP);
+  const n = subset.length;
+  if (n < 2) return { ids: subset.map(t => t.id), matrix: subset.map(() => [1]) };
+
+  const textField = (t: Ticket) => `${t.subject} ${t.type} ${t.tracker} ${t.project}`;
+  const tokenized = subset.map(t => tokenize(textField(t)));
+  const model = buildIdf(tokenized);
+  const vectors = tokenized.map(tok => tfidfVector(tok, model));
+  const numVecs = subset.map(ticketNumerals);
+
+  // Pre-compute all pairwise distances for normalization
+  const allDists: number[] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      allDists.push(euclideanDist(numVecs[i], numVecs[j]));
+    }
+  }
+  const normAllDists = normalize01(allDists);
+
+  const matrix: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+  let distIdx = 0;
+  for (let i = 0; i < n; i++) {
+    matrix[i][i] = 1;
+    for (let j = i + 1; j < n; j++) {
+      const textSim = cosineSim(vectors[i], vectors[j]);
+      const numSim = 1 - normAllDists[distIdx++];
+      const combined = 0.7 * textSim + 0.3 * numSim;
+      matrix[i][j] = combined;
+      matrix[j][i] = combined;
+    }
+  }
+
+  return { ids: subset.map(t => t.id), matrix };
 }
