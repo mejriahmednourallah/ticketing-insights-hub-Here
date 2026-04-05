@@ -112,7 +112,10 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
-      <h1 className="text-2xl md:text-3xl font-bold text-primary mb-2">Système de Ticketing</h1>
+      <div className="flex items-center gap-4 mb-2">
+        <h1 className="text-2xl md:text-3xl font-bold text-primary">Système de Ticketing</h1>
+        <a href="/similarity" className="text-sm text-muted-foreground hover:text-primary transition-colors">Analyse de Similarité →</a>
+      </div>
       <p className="text-muted-foreground mb-4 text-sm">Tableau de bord analytique — {tickets.length} tickets filtrés / {allTickets.length} total</p>
 
       <KPICards tickets={tickets} allTickets={allTickets} />
