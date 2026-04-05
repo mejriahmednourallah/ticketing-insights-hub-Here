@@ -221,11 +221,7 @@ export default function SimilarityAnalysis() {
                           </TableCell>
                           <TableCell className="text-center text-xs">{r.numDistance.toFixed(1)}</TableCell>
                           <TableCell className="text-center">
-                            <Badge className={cn(
-                              r.combinedScore >= 0.7 ? 'bg-green-600 text-white' :
-                              r.combinedScore >= 0.4 ? 'bg-yellow-500 text-black' :
-                              'bg-red-500 text-white'
-                            )}>
+                            <Badge variant={r.combinedScore >= 0.7 ? 'default' : r.combinedScore >= 0.4 ? 'secondary' : 'destructive'}>
                               {Math.round(r.combinedScore * 100)}%
                             </Badge>
                           </TableCell>
