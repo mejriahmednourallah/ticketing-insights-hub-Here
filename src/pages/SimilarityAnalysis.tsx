@@ -157,6 +157,17 @@ export default function SimilarityAnalysis() {
           )}
         </div>
       </div>
+
+      <AIChatPanel
+        ticketSummary={buildTicketSummary(
+          tickets,
+          allTickets,
+          filters,
+          referenceTicket && similarities.length > 0
+            ? { referenceId: referenceTicket.id, results: similarities }
+            : undefined
+        )}
+      />
     </div>
   );
 }
