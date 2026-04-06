@@ -134,14 +134,8 @@ export default function SimilarityAnalysis() {
               {/* KPI */}
               <SimilarityKPI results={similarities} referenceId={referenceTicket.id} />
 
-              {/* Charts row */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                <SimilarityBarChart results={similarities} />
-                <SimilarityScatter results={similarities} />
-              </div>
-
-              {/* Heatmap */}
-              <SimilarityHeatmap tickets={[referenceTicket, ...tickets.filter(t => t.id !== referenceTicket.id).slice(0, 29)]} />
+              {/* Bar chart */}
+              <SimilarityBarChart results={similarities} />
 
               {/* Ranked table */}
               <SimilarityResultsTable results={similarities} />
