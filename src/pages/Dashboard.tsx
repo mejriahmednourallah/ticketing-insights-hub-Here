@@ -391,6 +391,8 @@ export default function Dashboard() {
           <IssuesTable tickets={tickets} />
         </div>
       </div>
+
+      <AIChatPanel ticketSummary={buildTicketSummary(tickets, allTickets, filters)} />
     </div>
   );
 }
