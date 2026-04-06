@@ -6,6 +6,8 @@ import DashboardFilters from '@/components/dashboard/DashboardFilters';
 import SimilarityKPI from '@/components/similarity/SimilarityKPI';
 import SimilarityBarChart from '@/components/similarity/SimilarityBarChart';
 import SimilarityResultsTable from '@/components/similarity/SimilarityResultsTable';
+import AIChatPanel from '@/components/AIChatPanel';
+import { buildTicketSummary } from '@/lib/buildTicketSummary';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 
