@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { parseCSV, Ticket, uniqueValues } from '@/lib/parseTickets';
+import { Ticket, uniqueValues } from '@/lib/parseTickets';
 import { applyDashboardFilters, defaultFilters, Filters, emptyFilters } from '@/lib/dashboardFilters';
 import { computeSimilaritiesForTicket } from '@/lib/similarity';
 import DashboardFilters from '@/components/dashboard/DashboardFilters';
@@ -10,6 +10,7 @@ import AIChatPanel from '@/components/AIChatPanel';
 import { buildTicketSummary } from '@/lib/buildTicketSummary';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
+import { loadTickets } from '@/lib/loadTickets';
 
 export default function SimilarityAnalysis() {
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
@@ -19,13 +20,28 @@ export default function SimilarityAnalysis() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    fetch('/data/issues.csv')
-      .then(r => r.arrayBuffer())
-      .then(buf => {
-        const text = new TextDecoder('iso-8859-1').decode(buf);
-        setAllTickets(parseCSV(text));
-        setLoading(false);
+    let cancelled = false;
+
+    loadTickets()
+      .then(tickets => {
+        if (!cancelled) {
+          setAllTickets(tickets);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAllTickets([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const tickets = useMemo(() => applyDashboardFilters(allTickets, filters), [allTickets, filters]);

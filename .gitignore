@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
+
+# generated local runtime env from bootstrap
+.env.local.runtime
 
 # Editor directories and files
 .vscode/*

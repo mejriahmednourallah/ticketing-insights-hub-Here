@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts';
 import { applyDashboardFilters, defaultFilters, Filters } from '@/lib/dashboardFilters';
-import { parseCSV, Ticket, countBy, getResolutionHoursClosed, getResolutionHoursResolved, MONTH_NAMES } from '@/lib/parseTickets';
+import { Ticket, countBy, getResolutionHoursClosed, getResolutionHoursResolved, MONTH_NAMES } from '@/lib/parseTickets';
 import KPICards from '@/components/dashboard/KPICards';
 import DashboardFilters from '@/components/dashboard/DashboardFilters';
 import ChartCard from '@/components/dashboard/ChartCard';
 import IssuesTable from '@/components/dashboard/IssuesTable';
 import AIChatPanel from '@/components/AIChatPanel';
 import { buildTicketSummary } from '@/lib/buildTicketSummary';
+import { loadTickets } from '@/lib/loadTickets';
 
 const PRIORITY_COLORS: Record<string, string> = {
   'Normal': '#3b82f6', 'Urgent': '#ef4444', 'Haute': '#f59e0b', 'Immédiate': '#dc2626',
@@ -27,14 +28,28 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/data/issues.csv')
-      .then(r => r.arrayBuffer())
-      .then(buf => {
-        const decoder = new TextDecoder('iso-8859-1');
-        const text = decoder.decode(buf);
-        setAllTickets(parseCSV(text));
-        setLoading(false);
+    let cancelled = false;
+
+    loadTickets()
+      .then(tickets => {
+        if (!cancelled) {
+          setAllTickets(tickets);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAllTickets([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const tickets = useMemo(() => {

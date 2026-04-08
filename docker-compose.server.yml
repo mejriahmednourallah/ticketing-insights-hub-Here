@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ticketing_postgres
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_INITDB_ARGS: '--locale=C'
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ticketing_web
+    environment:
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-http://localhost:5432}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:-anon_key}
+      SUPABASE_URL: ${SUPABASE_URL:-http://postgres:5432}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-service_role_key}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - web_node_modules:/app/node_modules
+    restart: unless-stopped
+    command: sh -lc "bun install --frozen-lockfile && bun run dev --host 0.0.0.0 --port 8080"
+
+  # Background scheduler for Redmine ingestion
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ticketing_scheduler
+    environment:
+      REDMINE_URL: ${REDMINE_URL:-https://maintenance.medianet.tn}
+      REDMINE_API_KEY: ${REDMINE_API_KEY}
+      REDMINE_PAGE_SIZE: ${REDMINE_PAGE_SIZE:-100}
+      SUPABASE_URL: ${SUPABASE_URL:-http://postgres:5432}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      REDMINE_FIELD_TEAM: ${REDMINE_FIELD_TEAM}
+      REDMINE_FIELD_TECHNOLOGY: ${REDMINE_FIELD_TECHNOLOGY}
+      REDMINE_FIELD_TYPE: ${REDMINE_FIELD_TYPE}
+      REDMINE_FIELD_SATISFACTION: ${REDMINE_FIELD_SATISFACTION}
+      REDMINE_FIELD_SOURCE: ${REDMINE_FIELD_SOURCE}
+      REDMINE_FIELD_CANAL: ${REDMINE_FIELD_CANAL}
+      REDMINE_FIELD_SEGMENT_CLIENT: ${REDMINE_FIELD_SEGMENT_CLIENT}
+      REDMINE_FIELD_REGION: ${REDMINE_FIELD_REGION}
+      REDMINE_FIELD_REOPENED: ${REDMINE_FIELD_REOPENED}
+      REDMINE_FIELD_SLA_PLAN: ${REDMINE_FIELD_SLA_PLAN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    entrypoint: |
+      sh -c '
+        echo "Scheduler started. Running ingest every 5 minutes..."
+        while true; do
+          echo "Ingestion run at $(date +\"%Y-%m-%d %H:%M:%S\")"
+          bun run ingest:redmine:function 2>&1 || echo "Ingest failed, will retry"
+          sleep 300
+        done
+      '
+
+volumes:
+  postgres_data:
+  web_node_modules:
