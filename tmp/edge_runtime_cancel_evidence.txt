@@ -1,0 +1,25 @@
+﻿2026-04-09T07:19:43.426812010Z CPU time soft limit reached: isolate: c9bb67be-e801-4240-96bb-92231d44acd2
+2026-04-09T07:20:31.596657034Z CPU time hard limit reached: isolate: c9bb67be-e801-4240-96bb-92231d44acd2
+2026-04-09T07:20:31.596715840Z failed to send request to user worker: request has been cancelled by supervisor
+2026-04-09T07:20:31.598094772Z user worker failed to respond: request has been cancelled by supervisor
+2026-04-09T07:20:31.628405780Z WorkerRequestCancelled: request has been cancelled by supervisor
+2026-04-09T07:20:31.628546693Z   name: "WorkerRequestCancelled"
+2026-04-09T07:20:53.531752539Z CPU time soft limit reached: isolate: 73f4e8fb-9c6a-4b0a-b8d3-eca68774547a
+2026-04-09T07:22:16.898724123Z CPU time hard limit reached: isolate: 73f4e8fb-9c6a-4b0a-b8d3-eca68774547a
+2026-04-09T07:22:16.898766127Z failed to send request to user worker: request has been cancelled by supervisor
+2026-04-09T07:22:16.898888137Z user worker failed to respond: request has been cancelled by supervisor
+2026-04-09T07:22:16.900868101Z WorkerRequestCancelled: request has been cancelled by supervisor
+2026-04-09T07:22:16.900937206Z   name: "WorkerRequestCancelled"
+2026-04-09T07:23:51.351131718Z CPU time soft limit reached: isolate: 47f90096-0d99-4427-9d74-b53145a83d57
+2026-04-09T07:24:33.584926330Z CPU time hard limit reached: isolate: 47f90096-0d99-4427-9d74-b53145a83d57
+2026-04-09T07:24:33.586393158Z failed to send request to user worker: request has been cancelled by supervisor
+2026-04-09T07:24:33.589099193Z user worker failed to respond: request has been cancelled by supervisor
+2026-04-09T07:24:33.593265455Z WorkerRequestCancelled: request has been cancelled by supervisor
+2026-04-09T07:24:33.593356262Z   name: "WorkerRequestCancelled"
+2026-04-09T07:25:50.511895572Z CPU time soft limit reached: isolate: a1fa627f-7f09-459a-afe1-f9f7abb070e4
+2026-04-09T07:26:49.192635914Z CPU time hard limit reached: isolate: a1fa627f-7f09-459a-afe1-f9f7abb070e4
+2026-04-09T07:26:49.192701919Z failed to send request to user worker: request has been cancelled by supervisor
+2026-04-09T07:26:49.192713320Z user worker failed to respond: request has been cancelled by supervisor
+2026-04-09T07:26:49.193716907Z WorkerRequestCancelled: request has been cancelled by supervisor
+2026-04-09T07:26:49.193754410Z   name: "WorkerRequestCancelled"
+2026-04-09T07:31:03.763509783Z CPU time soft limit reached: isolate: 96275374-696c-4697-ae39-ca43980b2ee6

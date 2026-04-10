@@ -1,0 +1,26 @@
+TOTAL_PROJECTS=184
+OK_200=182
+WITH_ISSUES=166
+WITHOUT_ISSUES=16
+FORBIDDEN_403=2
+OTHER_ERRORS=0
+---FORBIDDEN_PROJECTS---
+ID=12 IDENTIFIER=maintenance NAME=$Maintenance STATUS=403
+ID=120 IDENTIFIER=groupe-medis NAME=Groupe MEDIS STATUS=403
+---SAMPLE_NO_ISSUES_PROJECTS---
+ID=4 IDENTIFIER=cotunace NAME=COTUNACE
+ID=9 IDENTIFIER=smart-capital NAME=Smart Capital
+ID=19 IDENTIFIER=cave_privee NAME=Cave_Privée
+ID=77 IDENTIFIER=lilas-detergents NAME=Lilas Detergents
+ID=107 IDENTIFIER=espace NAME=Espace 
+ID=137 IDENTIFIER=lifting-run-services NAME=Lifting RUN SERVICES
+ID=141 IDENTIFIER=smpc_groupe NAME=SMPC_Groupe
+ID=144 IDENTIFIER=startup-village NAME=Startup Village
+ID=156 IDENTIFIER=test-2025 NAME=TEST 2025
+ID=161 IDENTIFIER=discoveryintech NAME=Discoveryintech
+ID=171 IDENTIFIER=orkestral NAME=Orkestral
+ID=173 IDENTIFIER=snapflow-v2-connexion-a-jira NAME=SnapFlow V2 : Connexion à Jira
+ID=174 IDENTIFIER=snapflow-v2-connexion-a-microsoft NAME=Snapflow V4 : Connexion à Microsoft 
+ID=175 IDENTIFIER=snapflow-v2-qualite-logs-et-rapports NAME=SnapFlow V3 : Qualité logs et rapports
+ID=180 IDENTIFIER=espace-client-attijari-leasing NAME=Espace client Attijari Leasing
+ID=188 IDENTIFIER=test-file NAME=test-projet

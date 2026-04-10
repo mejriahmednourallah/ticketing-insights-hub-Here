@@ -1,6 +1,11 @@
 import { supabase } from '@/integrations/supabase/client';
 import { parseCSV, Ticket } from '@/lib/parseTickets';
 
+export type LoadTicketsOptions = {
+  supabaseOnly?: boolean;
+  cacheBuster?: string | number;
+};
+
 type TicketRow = {
   id: string | number;
   project: string;
@@ -69,38 +74,82 @@ function mapRow(row: TicketRow): Ticket {
   };
 }
 
-async function loadFromSupabase(): Promise<Ticket[] | null> {
+async function loadFromSupabase(): Promise<Ticket[]> {
   const client = supabase as unknown as {
     from: (table: string) => {
-      select: (columns: string) => Promise<{ data: TicketRow[] | null; error: { message: string } | null }>;
+      select: (columns: string) => {
+        range: (from: number, to: number) => Promise<{ data: TicketRow[] | null; error: { message: string } | null }>;
+      };
     };
   };
 
-  const result = await client.from('redmine_ticket_view').select('*');
-  if (result.error) {
-    return null;
+  const pageSize = 1000;
+  const allRows: TicketRow[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1;
+    const result = await client.from('redmine_ticket_view').select('*').range(from, to);
+    if (result.error) {
+      throw new Error(result.error.message);
+    }
+
+    const batch = result.data ?? [];
+    allRows.push(...batch);
+
+    if (batch.length < pageSize) {
+      break;
+    }
   }
 
-  const rows = result.data ?? [];
-  return rows.map(mapRow);
+  return allRows.map(mapRow);
 }
 
-async function loadFromCsv(): Promise<Ticket[]> {
-  const response = await fetch('/data/issues.csv');
+export async function loadProjectsCountFromSupabase(): Promise<number> {
+  const client = supabase as unknown as {
+    from: (table: string) => {
+      select: (
+        columns: string,
+        options?: { count?: 'exact'; head?: boolean }
+      ) => Promise<{ count: number | null; error: { message: string } | null }>;
+    };
+  };
+
+  const result = await client
+    .from('redmine_projects')
+    .select('redmine_id', { count: 'exact', head: true });
+
+  if (result.error) {
+    throw new Error(result.error.message);
+  }
+
+  return result.count ?? 0;
+}
+
+async function loadFromCsv(cacheBuster?: string | number): Promise<Ticket[]> {
+  const suffix = cacheBuster ? `?v=${encodeURIComponent(String(cacheBuster))}` : '';
+  const response = await fetch(`/data/issues.csv${suffix}`, { cache: 'no-store' });
   const buffer = await response.arrayBuffer();
   const text = new TextDecoder('iso-8859-1').decode(buffer);
   return parseCSV(text);
 }
 
-export async function loadTickets(): Promise<Ticket[]> {
+export async function loadTickets(options: LoadTicketsOptions = {}): Promise<Ticket[]> {
   try {
     const fromSupabase = await loadFromSupabase();
-    if (fromSupabase && fromSupabase.length > 0) {
+    if (fromSupabase.length > 0 || options.supabaseOnly) {
       return fromSupabase;
     }
-  } catch {
+  } catch (error) {
+    if (options.supabaseOnly) {
+      throw error;
+    }
+
     // Fall back to the bundled CSV when Supabase is not ready yet.
   }
 
-  return loadFromCsv();
+  if (options.supabaseOnly) {
+    return [];
+  }
+
+  return loadFromCsv(options.cacheBuster);
 }

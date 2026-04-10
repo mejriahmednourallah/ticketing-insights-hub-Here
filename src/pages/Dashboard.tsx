@@ -8,7 +8,8 @@ import ChartCard from '@/components/dashboard/ChartCard';
 import IssuesTable from '@/components/dashboard/IssuesTable';
 import AIChatPanel from '@/components/AIChatPanel';
 import { buildTicketSummary } from '@/lib/buildTicketSummary';
-import { loadTickets } from '@/lib/loadTickets';
+import { loadProjectsCountFromSupabase, loadTickets } from '@/lib/loadTickets';
+import { Button } from '@/components/ui/button';
 
 const PRIORITY_COLORS: Record<string, string> = {
   'Normal': '#3b82f6', 'Urgent': '#ef4444', 'Haute': '#f59e0b', 'Immédiate': '#dc2626',
@@ -24,8 +25,11 @@ function toChartData(counts: Record<string, number>) {
 
 export default function Dashboard() {
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+  const [globalProjectCount, setGlobalProjectCount] = useState<number | null>(null);
   const [filters, setFilters] = useState<Filters>(() => ({ ...defaultFilters }));
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,10 +51,53 @@ export default function Dashboard() {
         }
       });
 
+    loadProjectsCountFromSupabase()
+      .then(count => {
+        if (!cancelled) {
+          setGlobalProjectCount(count);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGlobalProjectCount(null);
+        }
+      });
+
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const clearBrowserCacheAndRefetch = async () => {
+    setIsRefreshing(true);
+    setRefreshMessage(null);
+
+    try {
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        const cacheKeys = await window.caches.keys();
+        await Promise.all(cacheKeys.map(cacheKey => window.caches.delete(cacheKey)));
+      }
+
+      const freshTickets = await loadTickets({
+        supabaseOnly: true,
+        cacheBuster: Date.now(),
+      });
+      const latestProjectCount = await loadProjectsCountFromSupabase();
+
+      setAllTickets(freshTickets);
+      setGlobalProjectCount(latestProjectCount);
+
+      if (freshTickets.length === 0) {
+        setRefreshMessage('Cache vidé. Supabase n\'a retourné aucun ticket.');
+      } else {
+        setRefreshMessage(`Cache vidé. ${freshTickets.length} tickets rechargés depuis Supabase.`);
+      }
+    } catch {
+      setRefreshMessage('Échec du rechargement Supabase. Vérifiez la connexion et les permissions.');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const tickets = useMemo(() => {
     return applyDashboardFilters(allTickets, filters);
@@ -70,7 +117,7 @@ export default function Dashboard() {
     }).sort((a, b) => (Number(b['2025']) + Number(b['2024']) + Number(b['2023'])) - (Number(a['2025']) + Number(a['2024']) + Number(a['2023'])));
   }, [tickets]);
   // 3. Project
-  const projectData = useMemo(() => toChartData(countBy(tickets, t => t.project)).slice(0, 20), [tickets]);
+  const projectData = useMemo(() => toChartData(countBy(tickets, t => t.project)), [tickets]);
   // 4. Subject assigned to project
   const subjectData = useMemo(() => toChartData(countBy(tickets, t => t.subject)).slice(0, 15), [tickets]);
   // 5. Team
@@ -129,13 +176,22 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
-      <div className="flex items-center gap-4 mb-2">
+      <div className="flex items-center gap-4 mb-2 flex-wrap">
         <h1 className="text-2xl md:text-3xl font-bold text-primary">Système de Ticketing</h1>
         <a href="/similarity" className="text-sm text-muted-foreground hover:text-primary transition-colors">Analyse de Similarité →</a>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={clearBrowserCacheAndRefetch}
+          disabled={isRefreshing}
+        >
+          {isRefreshing ? 'Rechargement...' : 'Vider cache + Recharger Supabase'}
+        </Button>
       </div>
       <p className="text-muted-foreground mb-4 text-sm">Tableau de bord analytique — {tickets.length} tickets filtrés / {allTickets.length} total</p>
+      {refreshMessage && <p className="text-sm text-muted-foreground mb-4">{refreshMessage}</p>}
 
-      <KPICards tickets={tickets} allTickets={allTickets} />
+      <KPICards tickets={tickets} allTickets={allTickets} globalProjectCount={globalProjectCount} />
 
       <div className="flex gap-4">
         {/* Left sidebar filters */}

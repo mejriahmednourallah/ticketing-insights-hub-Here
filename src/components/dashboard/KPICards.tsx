@@ -3,10 +3,13 @@ import { Ticket, getResolutionHoursClosed, getResolutionHoursResolved } from '@/
 interface KPICardsProps {
   tickets: Ticket[];
   allTickets: Ticket[];
+  globalProjectCount?: number | null;
 }
 
-export default function KPICards({ tickets, allTickets }: KPICardsProps) {
-  const projects = new Set(tickets.map(t => t.project).filter(Boolean)).size;
+export default function KPICards({ tickets, allTickets, globalProjectCount }: KPICardsProps) {
+  const projectsWithTickets = new Set(tickets.map(t => t.project).filter(Boolean)).size;
+  const projectsGlobalFallback = new Set(allTickets.map(t => t.project).filter(Boolean)).size;
+  const projectsGlobal = globalProjectCount ?? projectsGlobalFallback;
   const totalTickets = tickets.length;
   const globalTickets = allTickets.length;
 
@@ -19,7 +22,8 @@ export default function KPICards({ tickets, allTickets }: KPICardsProps) {
   const avg = (arr: number[]) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1) : '—';
 
   const cards = [
-    { label: 'Nombre de Projets', value: projects },
+    { label: 'Nombre de Projets', value: projectsGlobal },
+    { label: 'Nombre de Projets (avec tickets)', value: projectsWithTickets },
     { label: 'Nombre de tickets', value: totalTickets },
     { label: 'Nombre de tickets (global)', value: globalTickets },
     { label: 'Délai moyen resolved (h)', value: avg(resolvedHours) },

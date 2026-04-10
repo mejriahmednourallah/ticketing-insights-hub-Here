@@ -1,0 +1,10 @@
+﻿CMS / Framework | seen=974 | nonEmpty=835
+Equipe Affectée | seen=1000 | nonEmpty=792
+Date Resolved | seen=1000 | nonEmpty=587
+Source | seen=973 | nonEmpty=464
+ID PROJET | seen=962 | nonEmpty=296
+Nature | seen=955 | nonEmpty=166
+Date Prise en charge | seen=974 | nonEmpty=140
+Type d'intervention | seen=988 | nonEmpty=137
+Degrè de satisfaction | seen=1000 | nonEmpty=75
+Date Bloquage | seen=974 | nonEmpty=5

@@ -1,0 +1,52 @@
+﻿[
+    {
+        "name":  "CMS / Framework",
+        "seen":  974,
+        "nonEmpty":  835
+    },
+    {
+        "name":  "Equipe Affectée",
+        "seen":  1000,
+        "nonEmpty":  792
+    },
+    {
+        "name":  "Date Resolved",
+        "seen":  1000,
+        "nonEmpty":  587
+    },
+    {
+        "name":  "Source",
+        "seen":  973,
+        "nonEmpty":  464
+    },
+    {
+        "name":  "ID PROJET",
+        "seen":  962,
+        "nonEmpty":  296
+    },
+    {
+        "name":  "Nature",
+        "seen":  955,
+        "nonEmpty":  166
+    },
+    {
+        "name":  "Date Prise en charge",
+        "seen":  974,
+        "nonEmpty":  140
+    },
+    {
+        "name":  "Type d\u0027intervention",
+        "seen":  988,
+        "nonEmpty":  137
+    },
+    {
+        "name":  "Degrè de satisfaction",
+        "seen":  1000,
+        "nonEmpty":  75
+    },
+    {
+        "name":  "Date Bloquage",
+        "seen":  974,
+        "nonEmpty":  5
+    }
+]
