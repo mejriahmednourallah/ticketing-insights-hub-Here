@@ -42,6 +42,7 @@ See **DEPLOYMENT_GUIDE.md** → "Option 3: Server Deployment"
 
 | Document | Purpose |
 |----------|---------|
+| [PROJECT_TOP_LEVEL_OVERVIEW.md](PROJECT_TOP_LEVEL_OVERVIEW.md) | Top-level architecture and end-to-end system flow |
 | [SETUP_GUIDE.md](SETUP_GUIDE.md) | Step-by-step local setup (manual) |
 | [SETUP_MANUAL.sh](SETUP_MANUAL.sh) | Automated local bootstrap script |
 | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | All deployment options (local/cloud/server) |

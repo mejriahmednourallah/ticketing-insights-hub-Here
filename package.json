@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "probe:redmine": "bun scripts/redmine-probe.ts",
     "ingest:redmine:function": "bun scripts/trigger-redmine-ingest.ts",
-    "local:bootstrap": "bash scripts/bootstrap-local.sh"
+    "local:bootstrap": "bash scripts/bootstrap-local.sh",
+    "local:e2e:ps": "powershell -ExecutionPolicy Bypass -File scripts/run-local-e2e.ps1"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
