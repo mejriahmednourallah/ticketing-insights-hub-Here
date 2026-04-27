@@ -125,11 +125,14 @@ cat > "${ROOT_DIR}/.env.local.runtime" <<EOF
 SUPABASE_URL=${API_URL}
 SUPABASE_FUNCTIONS_URL=${API_URL}/functions/v1
 SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
+EOF
+
+cat > "${ROOT_DIR}/.env.local.web" <<EOF
 VITE_SUPABASE_URL=${API_URL}
 VITE_SUPABASE_PUBLISHABLE_KEY=${ANON_KEY}
 EOF
 
-log "Generated .env.local.runtime with local Supabase URLs and keys."
+log "Generated .env.local.runtime (private runtime values) and .env.local.web (frontend public values)."
 
 log "Applying DB migrations..."
 if ! supabase db push --local; then

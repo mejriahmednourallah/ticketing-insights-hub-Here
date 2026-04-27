@@ -74,9 +74,11 @@ try {
     [System.Environment]::SetEnvironmentVariable([string]$entry.Key, [string]$entry.Value, 'Process')
   }
 
-  foreach ($required in @('REDMINE_URL', 'REDMINE_API_KEY')) {
-    if (-not $envMap.ContainsKey($required) -or [string]::IsNullOrWhiteSpace($envMap[$required])) {
-      throw "Missing required env var in .env: $required"
+  if (-not $SkipIngest) {
+    foreach ($required in @('REDMINE_URL', 'REDMINE_API_KEY')) {
+      if (-not $envMap.ContainsKey($required) -or [string]::IsNullOrWhiteSpace($envMap[$required])) {
+        throw "Missing required env var in .env: $required"
+      }
     }
   }
 
@@ -104,16 +106,20 @@ try {
     throw 'Could not parse API_URL, ANON_KEY, or SERVICE_ROLE_KEY from supabase status -o env'
   }
 
-  Write-Step 'Generating .env.local.runtime for frontend'
+  Write-Step 'Generating .env.local.runtime for private runtime values'
   @(
     "SUPABASE_URL=$apiUrl"
     "SUPABASE_FUNCTIONS_URL=$apiUrl/functions/v1"
     "SUPABASE_SERVICE_ROLE_KEY=$serviceRoleKey"
-    "VITE_SUPABASE_URL=$apiUrl"
-    "VITE_SUPABASE_PUBLISHABLE_KEY=$anonKey"
   ) | Set-Content -Encoding UTF8 '.env.local.runtime'
 
-  Write-Step 'Generating .env.functions.runtime.local for function runtime'
+  Write-Step 'Generating .env.local.web for frontend public values'
+  @(
+    "VITE_SUPABASE_URL=$apiUrl"
+    "VITE_SUPABASE_PUBLISHABLE_KEY=$anonKey"
+  ) | Set-Content -Encoding UTF8 '.env.local.web'
+
+  Write-Step 'Generating .env.local.functions for function runtime'
   $functionEnvLines = @(
     "REDMINE_URL=$($envMap['REDMINE_URL'])"
     "REDMINE_API_KEY=$($envMap['REDMINE_API_KEY'])"
@@ -139,10 +145,10 @@ try {
   $filteredFunctionEnvLines = $functionEnvLines | Where-Object {
     -not [string]::IsNullOrWhiteSpace($_) -and ($_ -notmatch '=\s*$')
   }
-  $filteredFunctionEnvLines | Set-Content -Encoding UTF8 '.env.functions.runtime.local'
+  $filteredFunctionEnvLines | Set-Content -Encoding UTF8 '.env.local.functions'
 
   Write-Step 'Applying database migrations'
-  Run-SupabaseCli @('db', 'push')
+  Run-SupabaseCli @('db', 'push', '--local')
 
   if ($DeployFunctions) {
     Write-Step 'Deploying edge functions to cloud project'
@@ -218,8 +224,9 @@ try {
   Write-Step 'Done'
   Write-Host "Supabase API: $apiUrl"
   Write-Host 'Web app: http://127.0.0.1:8080'
-  Write-Host 'Frontend env file: .env.local.runtime'
-  Write-Host 'Function env file: .env.functions.runtime.local'
+  Write-Host 'Frontend env file: .env.local.web'
+  Write-Host 'Runtime env file: .env.local.runtime'
+  Write-Host 'Function env file: .env.local.functions'
 } finally {
   Pop-Location
 }

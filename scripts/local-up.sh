@@ -176,6 +176,16 @@ fi
 
 bash "${ROOT_DIR}/scripts/bootstrap-local.sh"
 
+if [[ ! -f "${ROOT_DIR}/.env.local.runtime" ]]; then
+  echo "ERROR: Missing .env.local.runtime after bootstrap." >&2
+  exit 1
+fi
+
+if [[ ! -f "${ROOT_DIR}/.env.local.web" ]]; then
+  echo "ERROR: Missing .env.local.web after bootstrap." >&2
+  exit 1
+fi
+
 load_env_file "${ROOT_DIR}/.env"
 load_env_file "${ROOT_DIR}/.env.local.runtime"
 

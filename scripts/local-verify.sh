@@ -22,6 +22,10 @@ if [[ ! -f "${ROOT_DIR}/.env.local.runtime" ]]; then
   fail "Missing .env.local.runtime. Run bash scripts/local-up.sh first."
 fi
 
+if [[ ! -f "${ROOT_DIR}/.env.local.web" ]]; then
+  fail "Missing .env.local.web. Run bash scripts/local-up.sh first."
+fi
+
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/.env.local.runtime"
 
