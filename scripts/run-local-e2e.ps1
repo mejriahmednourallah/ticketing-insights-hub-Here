@@ -37,10 +37,10 @@ function Require-Command([string]$CommandName) {
   }
 }
 
-function Run-SupabaseCli([string[]]$Args) {
-  & npm exec --package supabase@latest -- supabase @Args
+function Run-SupabaseCli([string[]]$CliArgs) {
+  & npm exec --package supabase@latest -- supabase @CliArgs
   if ($LASTEXITCODE -ne 0) {
-    throw "Supabase CLI command failed: supabase $($Args -join ' ')"
+    throw "Supabase CLI command failed: supabase $($CliArgs -join ' ')"
   }
 }
 
