@@ -47,8 +47,11 @@ type ListResponse<T> = {
 
 const REDMINE_URL = required('REDMINE_URL');
 const REDMINE_API_KEY = required('REDMINE_API_KEY');
-const SUPABASE_URL = required('SUPABASE_URL');
-const SUPABASE_SERVICE_ROLE_KEY = required('SUPABASE_SERVICE_ROLE_KEY');
+const SUPABASE_URL = requiredAny(['SUPABASE_URL', 'INGEST_SUPABASE_URL']);
+const SUPABASE_SERVICE_ROLE_KEY = requiredAny([
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'INGEST_SUPABASE_SERVICE_ROLE_KEY',
+]);
 const PAGE_SIZE = envPositiveInt('REDMINE_PAGE_SIZE', 500);
 const PROJECT_BATCH_SIZE = envPositiveInt('REDMINE_PROJECT_BATCH_SIZE', 20);
 const REDMINE_DEBUG = /^(1|true|yes|on)$/i.test(Deno.env.get('REDMINE_DEBUG') || '');
@@ -128,6 +131,17 @@ function required(name: string): string {
     throw new Error(`Missing environment variable: ${name}`);
   }
   return value.trim();
+}
+
+function requiredAny(names: string[]): string {
+  for (const name of names) {
+    const value = Deno.env.get(name);
+    if (value && value.trim() !== '') {
+      return value.trim();
+    }
+  }
+
+  throw new Error(`Missing environment variable. Tried: ${names.join(', ')}`);
 }
 
 function envPositiveInt(name: string, fallback: number): number {

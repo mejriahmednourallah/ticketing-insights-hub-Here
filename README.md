@@ -67,3 +67,18 @@ If you deploy the chat edge function, set its secret in Supabase with `supabase 
 - `REDMINE_PAGE_SIZE`: Pagination size for Redmine API requests, default `100`.
 
 Optional custom-field mappings can be configured with comma-separated aliases, for example `REDMINE_FIELD_TEAM`, `REDMINE_FIELD_TECHNOLOGY`, and `REDMINE_FIELD_SLA_PLAN`.
+
+## Troubleshooting Local Supabase Reload Errors
+
+If you get a message similar to "Supabase reload failed, check connection and permissions":
+
+```bash
+cd /workspaces/ticketing-insights-hub
+bash scripts/repair-supabase-local.sh
+```
+
+Then retry full startup:
+
+```bash
+bash scripts/local-up.sh
+```
