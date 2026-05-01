@@ -17,6 +17,11 @@ dist-ssr
 
 # generated local runtime env from bootstrap
 .env.local.runtime
+.env.local.web
+
+# local ingest runtime artifacts
+.redmine-ingest.log
+.redmine-ingest.pid
 
 # Editor directories and files
 .vscode/*

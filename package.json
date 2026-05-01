@@ -14,6 +14,12 @@
     "probe:redmine": "bun scripts/redmine-probe.ts",
     "ingest:redmine:function": "bun scripts/trigger-redmine-ingest.ts",
     "local:bootstrap": "bash scripts/bootstrap-local.sh",
+    "local:up": "bash scripts/local-up.sh",
+    "local:up:detached": "LOCAL_UP_DETACHED=1 bash scripts/local-up.sh",
+    "local:clean-docker": "bash scripts/clean-docker-local.sh",
+    "local:repair:supabase": "bash scripts/repair-supabase-local.sh",
+    "local:verify": "bash scripts/local-verify.sh",
+    "local:rebuild-and-verify": "bash scripts/local-rebuild-and-verify.sh",
     "local:e2e:ps": "powershell -ExecutionPolicy Bypass -File scripts/run-local-e2e.ps1"
   },
   "dependencies": {
