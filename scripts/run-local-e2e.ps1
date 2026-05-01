@@ -53,6 +53,18 @@ function First-Row($Value) {
   return $Value
 }
 
+function Unquote-Value([string]$Value) {
+  if ([string]::IsNullOrWhiteSpace($Value)) {
+    return $Value
+  }
+
+  if (($Value.StartsWith('"') -and $Value.EndsWith('"')) -or ($Value.StartsWith("'") -and $Value.EndsWith("'"))) {
+    return $Value.Substring(1, $Value.Length - 2)
+  }
+
+  return $Value
+}
+
 if ($MaxBatches -le 0) {
   throw 'MaxBatches must be > 0'
 }
@@ -99,6 +111,10 @@ try {
   $apiUrl = $statusVars['API_URL']
   $anonKey = $statusVars['ANON_KEY']
   $serviceRoleKey = $statusVars['SERVICE_ROLE_KEY']
+
+  $apiUrl = Unquote-Value $apiUrl
+  $anonKey = Unquote-Value $anonKey
+  $serviceRoleKey = Unquote-Value $serviceRoleKey
 
   if ([string]::IsNullOrWhiteSpace($apiUrl) -or [string]::IsNullOrWhiteSpace($anonKey) -or [string]::IsNullOrWhiteSpace($serviceRoleKey)) {
     throw 'Could not parse API_URL, ANON_KEY, or SERVICE_ROLE_KEY from supabase status -o env'
