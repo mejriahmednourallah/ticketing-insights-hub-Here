@@ -19,6 +19,9 @@ dist-ssr
 .env.local.runtime
 .env.local.web
 
+# function secrets injected by run-local-e2e.ps1 (contains real API keys)
+supabase/functions/.env
+
 # local ingest runtime artifacts
 .redmine-ingest.log
 .redmine-ingest.pid

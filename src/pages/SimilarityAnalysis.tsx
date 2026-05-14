@@ -1,11 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Ticket, uniqueValues } from '@/lib/parseTickets';
 import { applyDashboardFilters, defaultFilters, Filters, emptyFilters } from '@/lib/dashboardFilters';
-import { computeSimilaritiesForTicket } from '@/lib/similarity';
+import { buildSimilarityCache, querySimilarity, SimilarityCache } from '@/lib/similarity';
 import DashboardFilters from '@/components/dashboard/DashboardFilters';
-import SimilarityKPI from '@/components/similarity/SimilarityKPI';
-import SimilarityBarChart from '@/components/similarity/SimilarityBarChart';
-import SimilarityResultsTable from '@/components/similarity/SimilarityResultsTable';
+import SimilarityResultsSheet from '@/components/similarity/SimilarityResultsSheet';
 import AIChatPanel from '@/components/AIChatPanel';
 import { buildTicketSummary } from '@/lib/buildTicketSummary';
 import { Button } from '@/components/ui/button';
@@ -18,6 +16,7 @@ export default function SimilarityAnalysis() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,13 +47,24 @@ export default function SimilarityAnalysis() {
 
   const referenceTicket = useMemo(() => tickets.find(t => t.id === selectedId) ?? null, [tickets, selectedId]);
 
-  const similarities = useMemo(() => {
-    if (!referenceTicket) return [];
-    const others = tickets.filter(t => t.id !== referenceTicket.id);
-    return computeSimilaritiesForTicket(referenceTicket, others);
-  }, [referenceTicket, tickets]);
+  // Pre-compute the heavy IDF model + vectors ONCE (only rebuilds when tickets change)
+  const similarityCache = useMemo<SimilarityCache | null>(() => {
+    if (tickets.length === 0) return null;
+    return buildSimilarityCache(tickets);
+  }, [tickets]);
 
-  // Filter ticket picker dropdown
+  // Query the cache — fast O(N) per click instead of O(N²)
+  const similarities = useMemo(() => {
+    if (!referenceTicket || !similarityCache) return [];
+    return querySimilarity(similarityCache, referenceTicket);
+  }, [referenceTicket, similarityCache]);
+
+  // Auto-open sheet when a ticket is selected and similarities are ready
+  useEffect(() => {
+    if (selectedId && similarities.length > 0) {
+      setSheetOpen(true);
+    }
+  }, [selectedId, similarities.length]);
   const filteredPickerTickets = useMemo(() => {
     if (!searchTerm) return tickets.slice(0, 100);
     const q = searchTerm.toLowerCase();
@@ -65,6 +75,7 @@ export default function SimilarityAnalysis() {
     setFilters({ ...emptyFilters });
     setSelectedId('');
     setSearchTerm('');
+    setSheetOpen(false);
   };
 
   if (loading) {
@@ -132,7 +143,7 @@ export default function SimilarityAnalysis() {
                   {filteredPickerTickets.map(t => (
                     <tr
                       key={t.id}
-                      onClick={() => setSelectedId(t.id)}
+                      onClick={() => { setSelectedId(t.id); setSheetOpen(true); }}
                       className={`cursor-pointer hover:bg-muted/50 transition-colors ${selectedId === t.id ? 'bg-primary/15 font-medium' : ''}`}
                     >
                       <td className="px-3 py-1.5 font-mono text-xs">{t.id}</td>
@@ -146,19 +157,7 @@ export default function SimilarityAnalysis() {
             </div>
           </div>
 
-          {/* Results section */}
-          {referenceTicket && similarities.length > 0 && (
-            <>
-              {/* KPI */}
-              <SimilarityKPI results={similarities} referenceId={referenceTicket.id} />
-
-              {/* Bar chart */}
-              <SimilarityBarChart results={similarities} />
-
-              {/* Ranked table */}
-              <SimilarityResultsTable results={similarities} />
-            </>
-          )}
+          {/* Results section — sheet opens on ticket click */}
 
           {selectedId && !referenceTicket && (
             <div className="rounded-lg border bg-card p-6 text-center text-muted-foreground">
@@ -183,6 +182,15 @@ export default function SimilarityAnalysis() {
             ? { referenceId: referenceTicket.id, results: similarities }
             : undefined
         )}
+      />
+
+      {/* Similarity results sheet (right-side slide-in) */}
+      <SimilarityResultsSheet
+        results={similarities}
+        referenceId={referenceTicket?.id ?? ''}
+        referenceSubject={referenceTicket?.subject ?? ''}
+        isOpen={sheetOpen}
+        onClose={() => setSheetOpen(false)}
       />
     </div>
   );

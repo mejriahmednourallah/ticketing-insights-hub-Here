@@ -14,7 +14,7 @@ function Write-Step([string]$Message) {
 
 function Parse-DotEnv([string]$Path) {
   $map = @{}
-  foreach ($line in Get-Content $Path) {
+  foreach ($line in Get-Content $Path -Encoding UTF8) {
     if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
       $key = $matches[1]
       $value = $matches[2].Trim()
@@ -94,6 +94,28 @@ try {
     }
   }
 
+  Write-Step 'Creating supabase/functions/.env for local edge runtime'
+  $funcEnvLines = @(
+    "REDMINE_URL=$($envMap['REDMINE_URL'])"
+    "REDMINE_API_KEY=$($envMap['REDMINE_API_KEY'])"
+    "REDMINE_PAGE_SIZE=$($envMap['REDMINE_PAGE_SIZE'])"
+    "REDMINE_PROJECT_BATCH_SIZE=$($envMap['REDMINE_PROJECT_BATCH_SIZE'])"
+    "REDMINE_MAX_RETRIES=$($envMap['REDMINE_MAX_RETRIES'])"
+    "REDMINE_REQUEST_TIMEOUT_MS=$($envMap['REDMINE_REQUEST_TIMEOUT_MS'])"
+    "REDMINE_FIELD_TEAM=$($envMap['REDMINE_FIELD_TEAM'])"
+    "REDMINE_FIELD_TECHNOLOGY=$($envMap['REDMINE_FIELD_TECHNOLOGY'])"
+    "REDMINE_FIELD_TYPE=$($envMap['REDMINE_FIELD_TYPE'])"
+    "REDMINE_FIELD_SATISFACTION=$($envMap['REDMINE_FIELD_SATISFACTION'])"
+    "REDMINE_FIELD_SOURCE=$($envMap['REDMINE_FIELD_SOURCE'])"
+    "REDMINE_FIELD_CANAL=$($envMap['REDMINE_FIELD_CANAL'])"
+    "REDMINE_FIELD_SEGMENT_CLIENT=$($envMap['REDMINE_FIELD_SEGMENT_CLIENT'])"
+    "REDMINE_FIELD_REGION=$($envMap['REDMINE_FIELD_REGION'])"
+    "REDMINE_FIELD_REOPENED=$($envMap['REDMINE_FIELD_REOPENED'])"
+    "REDMINE_FIELD_SLA_PLAN=$($envMap['REDMINE_FIELD_SLA_PLAN'])"
+  ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and ($_ -notmatch '=\s*$') }
+  $funcEnvPath = Join-Path (Get-Location) 'supabase/functions/.env'
+  [System.IO.File]::WriteAllLines($funcEnvPath, $funcEnvLines, [System.Text.UTF8Encoding]::new($false))
+
   Write-Step 'Starting local Supabase stack (images are pulled automatically when missing)'
   Run-SupabaseCli @('start')
 
@@ -121,6 +143,10 @@ try {
   if ([string]::IsNullOrWhiteSpace($apiUrl) -or [string]::IsNullOrWhiteSpace($anonKey) -or [string]::IsNullOrWhiteSpace($serviceRoleKey)) {
     throw 'Could not parse API_URL, ANON_KEY, or SERVICE_ROLE_KEY from supabase status -o env'
   }
+
+  Write-Step 'Stopping web container so env files are not locked'
+  docker compose stop web 2>$null
+  if ($LASTEXITCODE -ne 0) { Write-Host 'web container was not running, continuing.' }
 
   Write-Step 'Generating .env.local.runtime for private runtime values'
   @(
@@ -195,7 +221,11 @@ try {
   if (-not $SkipIngest) {
     Write-Step "Running resumable ingestion batches (max $MaxBatches)"
     $functionUrl = "$apiUrl/functions/v1/redmine-ingest"
-    $invokeHeaders = @{ 'Content-Type' = 'application/json' }
+    $invokeHeaders = @{
+      'Content-Type'  = 'application/json'
+      'Authorization' = "Bearer $serviceRoleKey"
+      'apikey'        = $serviceRoleKey
+    }
     $restHeaders = @{
       apikey = $serviceRoleKey
       Authorization = "Bearer $serviceRoleKey"

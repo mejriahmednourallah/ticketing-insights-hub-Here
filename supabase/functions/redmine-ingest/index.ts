@@ -184,13 +184,18 @@ function getCustomField(
   if (!customFields || customFields.length === 0) return '';
 
   const normalizedAliases = aliases.map(normalizeToken);
-  const field = customFields.find(cf => {
-    const nameToken = normalizeToken(cf.name || '');
-    const idToken = cf.id !== undefined ? normalizeToken(String(cf.id)) : '';
-    return normalizedAliases.includes(nameToken) || normalizedAliases.includes(idToken);
-  });
 
-  return valueToString(field?.value);
+  // Iterate aliases in priority order, find first matching field
+  for (const alias of normalizedAliases) {
+    const field = customFields.find(cf => {
+      const nameToken = normalizeToken(cf.name || '');
+      const idToken = cf.id !== undefined ? normalizeToken(String(cf.id)) : '';
+      return nameToken === alias || idToken === alias;
+    });
+    if (field) return valueToString(field.value);
+  }
+
+  return '';
 }
 
 function attachmentNames(attachments: Array<{ filename?: string }> | undefined): string {

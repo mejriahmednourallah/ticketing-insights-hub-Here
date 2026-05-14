@@ -92,38 +92,65 @@ export interface SimilarityResult {
   numDistance: number;
   combinedScore: number;
   differences: string[];
+  rank: number;
 }
 
-/** Compare one reference ticket against all others. Returns sorted by combinedScore desc. */
-export function computeSimilaritiesForTicket(
-  reference: Ticket,
-  others: Ticket[],
-): SimilarityResult[] {
-  if (others.length === 0) return [];
+/** Default number of top similar tickets shown across the similarity page. */
+export const SIMILARITY_TOP_N = 10;
 
-  const allTickets = [reference, ...others];
-  const textField = (t: Ticket) => `${t.subject} ${t.type} ${t.tracker} ${t.project}`;
-  const tokenized = allTickets.map(t => tokenize(textField(t)));
+/** Inspect the first N results and count how many meet or exceed the threshold. */
+export function countSimilarAboveThreshold(results: SimilarityResult[], topN: number, threshold: number): number {
+  return results.slice(0, topN).filter(r => r.combinedScore >= threshold).length;
+}
+
+// ── Pre-computed similarity index (avoids O(N²) per click) ──
+
+export interface SimilarityCache {
+  tickets: Ticket[];
+  tokenized: string[][];
+  model: TfIdfModel;
+  vectors: Map<string, number>[];
+  numerals: number[][];
+}
+
+const textField = (t: Ticket) => `${t.subject} ${t.type} ${t.tracker} ${t.project}`;
+
+/** Pre-compute tokenized texts, IDF model, TF-IDF vectors and numerical vectors once. */
+export function buildSimilarityCache(tickets: Ticket[]): SimilarityCache {
+  const tokenized = tickets.map(t => tokenize(textField(t)));
   const model = buildIdf(tokenized);
   const vectors = tokenized.map(tok => tfidfVector(tok, model));
+  const numerals = tickets.map(ticketNumerals);
+  return { tickets, tokenized, model, vectors, numerals };
+}
 
-  const refVec = vectors[0];
+/** Query similarity using a pre-built cache. Much faster than computeSimilaritiesForTicket. */
+export function querySimilarity(
+  cache: SimilarityCache,
+  reference: Ticket,
+): SimilarityResult[] {
+  const { tickets, vectors, numerals } = cache;
+  if (tickets.length === 0) return [];
+
+  const refTokens = tokenize(textField(reference));
+  const refVec = tfidfVector(refTokens, cache.model);
   const refNum = ticketNumerals(reference);
 
   const rawDists: number[] = [];
-  const pairs: { idx: number; textSim: number; dist: number }[] = [];
+  const pairs: { idx: number; textSim: number; dist: number; ticket: Ticket }[] = [];
 
-  for (let i = 1; i < allTickets.length; i++) {
+  for (let i = 0; i < tickets.length; i++) {
+    if (tickets[i].id === reference.id) continue;
     const textSim = cosineSim(refVec, vectors[i]);
-    const dist = euclideanDist(refNum, ticketNumerals(allTickets[i]));
+    const dist = euclideanDist(refNum, numerals[i]);
     rawDists.push(dist);
-    pairs.push({ idx: i, textSim, dist });
+    pairs.push({ idx: i, textSim, dist, ticket: tickets[i] });
   }
 
   const normDists = normalize01(rawDists);
 
   const results: SimilarityResult[] = pairs.map((p, i) => {
-    const b = allTickets[p.idx];
+    const b = p.ticket;
     const numSim = 1 - normDists[i];
     const combined = 0.7 * p.textSim + 0.3 * numSim;
 
@@ -144,11 +171,26 @@ export function computeSimilaritiesForTicket(
       numDistance: p.dist,
       combinedScore: combined,
       differences: diffs,
+      rank: 0, // assigned after sort
     };
   });
 
   results.sort((a, b) => b.combinedScore - a.combinedScore);
+  for (let i = 0; i < results.length; i++) {
+    results[i].rank = i + 1;
+  }
   return results;
+}
+
+/** Compare one reference ticket against all others. Returns sorted by combinedScore desc. */
+export function computeSimilaritiesForTicket(
+  reference: Ticket,
+  others: Ticket[],
+): SimilarityResult[] {
+  if (others.length === 0) return [];
+
+  const cache = buildSimilarityCache([reference, ...others]);
+  return querySimilarity(cache, reference);
 }
 
 /** Compute full NxN similarity matrix for a set of tickets (capped for perf). */
