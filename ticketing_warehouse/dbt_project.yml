@@ -1,0 +1,33 @@
+name: ticketing_warehouse
+version: "1.0.0"
+config-version: 2
+
+profile: ticketing_warehouse
+
+# Paths
+model-paths:     ["models"]
+test-paths:      ["tests"]
+macro-paths:     ["macros"]
+target-path:     "target"
+clean-targets:   ["target", "dbt_packages"]
+
+# Model defaults — override per directory as needed
+models:
+  ticketing_warehouse:
+
+    staging:
+      +schema:       staging
+      # Use materialized views so dbt manages the refresh; pg_cron handles
+      # the scheduled runs via public.refresh_warehouse().
+      +materialized: materialized_view
+      +indexes:
+        - columns: [id]
+          unique: true
+
+    marts:
+      +schema:       marts
+      +materialized: materialized_view
+
+    analytics:
+      +schema:       analytics
+      +materialized: view

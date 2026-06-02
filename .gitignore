@@ -12,12 +12,11 @@ dist
 dist-ssr
 *.local
 .env
-.env.*
+.env
 !.env.example
 
 # generated local runtime env from bootstrap
-.env.local.runtime
-.env.local.web
+
 
 # function secrets injected by run-local-e2e.ps1 (contains real API keys)
 supabase/functions/.env
@@ -25,6 +24,14 @@ supabase/functions/.env
 # local ingest runtime artifacts
 .redmine-ingest.log
 .redmine-ingest.pid
+
+# local DuckDB/dbt warehouse artifacts
+ticketing_warehouse/warehouse.duckdb
+ticketing_warehouse/warehouse.duckdb.wal
+ticketing_warehouse/target/
+ticketing_warehouse/dbt_packages/
+ticketing_warehouse/logs/
+ticketing_warehouse/.duckdb_extensions/
 
 # Editor directories and files
 .vscode/*

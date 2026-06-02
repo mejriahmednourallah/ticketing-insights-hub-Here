@@ -1,0 +1,93 @@
+version: 2
+
+models:
+  - name: mart_daily_volume
+    description: >
+      Tickets opened and closed per calendar day per project.
+      Used for sparklines and volume bar charts.
+    columns:
+      - name: day
+        description: Calendar date (created_date).
+        tests: [not_null]
+      - name: project_name
+        tests: [not_null]
+      - name: opened
+        description: Number of tickets created on this day.
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: ">= 0"
+
+  - name: mart_team_velocity
+    description: >
+      Tickets opened and resolved per team per calendar week.
+      Feeds team KPI cards and velocity trend charts.
+    columns:
+      - name: week_start
+        description: Monday of the calendar week (date_trunc('week')).
+        tests: [not_null]
+      - name: team
+        tests: [not_null]
+      - name: project_name
+        tests: [not_null]
+      - name: opened
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: resolved
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: ">= 0"
+
+  - name: mart_sla_compliance
+    description: >
+      SLA breach percentage by project, team, SLA plan, and week.
+      Only rows where an SLA plan is configured are included.
+    columns:
+      - name: week_start
+        tests: [not_null]
+      - name: project_name
+        tests: [not_null]
+      - name: sla_plan
+        tests: [not_null]
+      - name: compliance_pct
+        description: Percentage of tickets resolved within SLA target (0–100).
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: "between 0 and 100"
+
+  - name: mart_age_bands
+    description: >
+      Open-ticket backlog split into five age buckets per project and team.
+      Feeds the "Backlog Health" stacked bar chart.
+    columns:
+      - name: project_name
+        tests: [not_null]
+      - name: age_band
+        tests: [not_null]
+      - name: band_order
+        description: Numeric sort key (1 = youngest, 5 = oldest).
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+      - name: ticket_count
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: "> 0"
+
+  - name: mart_similarity_features
+    description: >
+      Pre-flattened issue text used by local analytical workflows and
+      similarity experiments.
+    columns:
+      - name: id
+        tests: [unique, not_null]
+      - name: project_name
+        tests: [not_null]
+      - name: corpus
+        tests: [not_null]

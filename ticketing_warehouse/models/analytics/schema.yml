@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: v_dashboard
+    description: Frontend-friendly per-project KPI summary.
+    columns:
+      - name: project_name
+        tests: [not_null]
+      - name: total_issues
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: ">= 0"
+
+  - name: v_team_kpis
+    description: Per-team performance summary.
+    columns:
+      - name: team
+        tests: [not_null]
+      - name: project_name
+        tests: [not_null]
+
+  - name: v_backlog_health
+    description: Open-ticket age-band distribution.
+    columns:
+      - name: project_name
+        tests: [not_null]
+      - name: age_band
+        tests: [not_null]

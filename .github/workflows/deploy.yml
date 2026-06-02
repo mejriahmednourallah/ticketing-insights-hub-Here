@@ -1,0 +1,190 @@
+name: Deploy
+
+# Runs on every merge to main.
+# Sequential stages: Docker build → Supabase migrations + Edge Functions → dbt warehouse refresh
+# Notifies Slack on any failure.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:    # allow manual trigger for first-run testing
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false   # never cancel an in-flight deploy
+
+env:
+  REGISTRY:   ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/ticketing-hub
+
+jobs:
+  # ── 1. Build & push Docker image ─────────────────────────────────────────
+  docker-build:
+    name: Docker build → GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tags: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context:    .
+          file:       Dockerfile.prod
+          push:       true
+          tags:       ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          build-args: |
+            VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+  # ── 2. Supabase: migrations + Edge Functions + secrets ───────────────────
+  supabase-deploy:
+    name: Supabase deploy
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Run pending migrations
+        run: supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD:  ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      - name: Deploy Edge Functions
+        run: supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Set Edge Function secrets
+        run: |
+          supabase secrets set \
+            REDMINE_URL=${{ secrets.REDMINE_URL }} \
+            REDMINE_API_KEY=${{ secrets.REDMINE_API_KEY }} \
+            AI_GATEWAY_URL=${{ secrets.AI_GATEWAY_URL }} \
+            AI_GATEWAY_KEY=${{ secrets.AI_GATEWAY_KEY }} \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+  # ── 3. dbt: rebuild staging + marts ──────────────────────────────────────
+  dbt-run:
+    name: dbt warehouse refresh
+    runs-on: ubuntu-latest
+    needs: supabase-deploy
+
+    defaults:
+      run:
+        working-directory: ticketing_warehouse
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dbt-postgres
+        run: pip install dbt-postgres
+
+      - name: dbt deps
+        run: dbt deps
+
+      - name: Run staging models
+        run: dbt run --select staging.*
+        env:
+          DBT_SUPABASE_HOST:     ${{ secrets.SUPABASE_DB_HOST }}
+          DBT_SUPABASE_USER:     ${{ secrets.SUPABASE_DB_USER }}
+          DBT_SUPABASE_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DBT_SUPABASE_DBNAME:   postgres
+
+      - name: Run mart models
+        run: dbt run --select marts.*
+        env:
+          DBT_SUPABASE_HOST:     ${{ secrets.SUPABASE_DB_HOST }}
+          DBT_SUPABASE_USER:     ${{ secrets.SUPABASE_DB_USER }}
+          DBT_SUPABASE_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DBT_SUPABASE_DBNAME:   postgres
+
+      - name: Run all dbt tests
+        run: dbt test
+        env:
+          DBT_SUPABASE_HOST:     ${{ secrets.SUPABASE_DB_HOST }}
+          DBT_SUPABASE_USER:     ${{ secrets.SUPABASE_DB_USER }}
+          DBT_SUPABASE_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DBT_SUPABASE_DBNAME:   postgres
+
+      - name: Generate dbt docs
+        run: dbt docs generate
+        env:
+          DBT_SUPABASE_HOST:     ${{ secrets.SUPABASE_DB_HOST }}
+          DBT_SUPABASE_USER:     ${{ secrets.SUPABASE_DB_USER }}
+          DBT_SUPABASE_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DBT_SUPABASE_DBNAME:   postgres
+
+      - name: Upload dbt docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-docs-${{ github.sha }}
+          path: ticketing_warehouse/target/
+          retention-days: 30
+
+  # ── 4. Slack failure notification ────────────────────────────────────────
+  notify-failure:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: [docker-build, supabase-deploy, dbt-run]
+    if: failure()
+
+    steps:
+      - name: Post Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ *Deploy failed* on `${{ github.ref_name }}`",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  { "title": "Commit",  "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>" },
+                  { "title": "Run",     "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>" },
+                  { "title": "Author",  "value": "${{ github.actor }}" }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

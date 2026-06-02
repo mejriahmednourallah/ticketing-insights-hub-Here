@@ -20,7 +20,11 @@
     "local:repair:supabase": "bash scripts/repair-supabase-local.sh",
     "local:verify": "bash scripts/local-verify.sh",
     "local:rebuild-and-verify": "bash scripts/local-rebuild-and-verify.sh",
-    "local:e2e:ps": "powershell -ExecutionPolicy Bypass -File scripts/run-local-e2e.ps1"
+    "local:e2e:ps": "powershell -ExecutionPolicy Bypass -File scripts/run-local-e2e.ps1",
+    "warehouse:duckdb:bootstrap": "python ticketing_warehouse/scripts/run_duckdb_sql.py ticketing_warehouse/warehouse.duckdb ticketing_warehouse/scripts/bootstrap_duckdb.sql",
+    "warehouse:duckdb:run": "cd ticketing_warehouse && python -m dbt.cli.main run --profiles-dir . --target duckdb",
+    "warehouse:duckdb:test": "cd ticketing_warehouse && python -m dbt.cli.main test --profiles-dir . --target duckdb",
+    "warehouse:duckdb:validate": "python ticketing_warehouse/scripts/run_duckdb_sql.py ticketing_warehouse/warehouse.duckdb ticketing_warehouse/scripts/validate_duckdb.sql"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

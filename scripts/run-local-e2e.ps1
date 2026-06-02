@@ -1,6 +1,7 @@
 param(
   [switch]$NoCache,
   [switch]$SkipIngest,
+  [switch]$SkipDuckDB,
   [switch]$DeployFunctions,
   [int]$MaxBatches = 20
 )
@@ -10,6 +11,11 @@ Set-StrictMode -Version Latest
 
 function Write-Step([string]$Message) {
   Write-Host "`n==> $Message" -ForegroundColor Cyan
+}
+
+function Write-Utf8NoBom([string]$Path, [string[]]$Lines) {
+  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+  [System.IO.File]::WriteAllLines((Join-Path (Get-Location) $Path), $Lines, $utf8NoBom)
 }
 
 function Parse-DotEnv([string]$Path) {
@@ -38,10 +44,52 @@ function Require-Command([string]$CommandName) {
 }
 
 function Run-SupabaseCli([string[]]$CliArgs) {
-  & npm exec --package supabase@latest -- supabase @CliArgs
+  & npx supabase @CliArgs
   if ($LASTEXITCODE -ne 0) {
     throw "Supabase CLI command failed: supabase $($CliArgs -join ' ')"
   }
+}
+
+function Start-SupabaseWithRecovery {
+  & npx supabase start
+  if ($LASTEXITCODE -eq 0) {
+    return
+  }
+
+  Write-Host 'Supabase start failed. Trying a local stop/start recovery.' -ForegroundColor Yellow
+  & npx supabase stop
+  & npx supabase start
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Supabase CLI command failed: supabase start'
+  }
+}
+
+function Run-Command([string]$Label, [string]$Command, [string[]]$CommandArgs) {
+  Write-Step $Label
+  & $Command @CommandArgs
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Label failed"
+  }
+}
+
+function Refresh-DuckDBWarehouse {
+  Write-Step 'Refreshing DuckDB warehouse from scratch'
+
+  $duckdbFiles = @(
+    'ticketing_warehouse/warehouse.duckdb',
+    'ticketing_warehouse/warehouse.duckdb.wal'
+  )
+
+  foreach ($file in $duckdbFiles) {
+    if (Test-Path $file) {
+      Remove-Item -LiteralPath $file -Force
+    }
+  }
+
+  Run-Command 'Bootstrapping DuckDB from local Supabase' 'npm' @('run', 'warehouse:duckdb:bootstrap')
+  Run-Command 'Running dbt models on DuckDB' 'npm' @('run', 'warehouse:duckdb:run')
+  Run-Command 'Testing dbt models on DuckDB' 'npm' @('run', 'warehouse:duckdb:test')
+  Run-Command 'Validating DuckDB outputs' 'npm' @('run', 'warehouse:duckdb:validate')
 }
 
 function First-Row($Value) {
@@ -117,10 +165,10 @@ try {
   [System.IO.File]::WriteAllLines($funcEnvPath, $funcEnvLines, [System.Text.UTF8Encoding]::new($false))
 
   Write-Step 'Starting local Supabase stack (images are pulled automatically when missing)'
-  Run-SupabaseCli @('start')
+  Start-SupabaseWithRecovery
 
   Write-Step 'Reading local Supabase runtime values'
-  $statusOutput = & npm exec --package supabase@latest -- supabase status -o env
+  $statusOutput = & npx supabase status -o env
   if ($LASTEXITCODE -ne 0) {
     throw 'Failed to read supabase status -o env'
   }
@@ -144,22 +192,32 @@ try {
     throw 'Could not parse API_URL, ANON_KEY, or SERVICE_ROLE_KEY from supabase status -o env'
   }
 
+  $composeArgs = @('compose')
+  if (Test-Path 'docker-compose.web-local.yml') {
+    $composeArgs += @('-f', 'docker-compose.yml', '-f', 'docker-compose.web-local.yml')
+  }
+
   Write-Step 'Stopping web container so env files are not locked'
-  docker compose stop web 2>$null
-  if ($LASTEXITCODE -ne 0) { Write-Host 'web container was not running, continuing.' }
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $dockerArgs = $composeArgs + @('stop', 'web')
+  & docker @dockerArgs 2>$null
+  $stopExitCode = $LASTEXITCODE
+  $ErrorActionPreference = $previousErrorActionPreference
+  if ($stopExitCode -ne 0) { Write-Host 'web container was not running, continuing.' }
 
   Write-Step 'Generating .env.local.runtime for private runtime values'
-  @(
+  Write-Utf8NoBom '.env.local.runtime' @(
     "SUPABASE_URL=$apiUrl"
     "SUPABASE_FUNCTIONS_URL=$apiUrl/functions/v1"
     "SUPABASE_SERVICE_ROLE_KEY=$serviceRoleKey"
-  ) | Set-Content -Encoding UTF8 '.env.local.runtime'
+  )
 
   Write-Step 'Generating .env.local.web for frontend public values'
-  @(
+  Write-Utf8NoBom '.env.local.web' @(
     "VITE_SUPABASE_URL=$apiUrl"
     "VITE_SUPABASE_PUBLISHABLE_KEY=$anonKey"
-  ) | Set-Content -Encoding UTF8 '.env.local.web'
+  )
 
   Write-Step 'Generating .env.local.functions for function runtime'
   $functionEnvLines = @(
@@ -187,7 +245,7 @@ try {
   $filteredFunctionEnvLines = $functionEnvLines | Where-Object {
     -not [string]::IsNullOrWhiteSpace($_) -and ($_ -notmatch '=\s*$')
   }
-  $filteredFunctionEnvLines | Set-Content -Encoding UTF8 '.env.local.functions'
+  Write-Utf8NoBom '.env.local.functions' $filteredFunctionEnvLines
 
   Write-Step 'Applying database migrations'
   Run-SupabaseCli @('db', 'push', '--local')
@@ -209,12 +267,15 @@ try {
 
   Write-Step 'Starting web service in Docker'
   if ($NoCache) {
-    docker compose build --no-cache web
+    $dockerArgs = $composeArgs + @('build', '--no-cache', 'web')
+    & docker @dockerArgs
     if ($LASTEXITCODE -ne 0) { throw 'docker compose build --no-cache web failed' }
-    docker compose up -d web
+    $dockerArgs = $composeArgs + @('up', '-d', 'web')
+    & docker @dockerArgs
     if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d web failed' }
   } else {
-    docker compose up -d --build web
+    $dockerArgs = $composeArgs + @('up', '-d', '--build', 'web')
+    & docker @dockerArgs
     if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d --build web failed' }
   }
 
@@ -267,12 +328,23 @@ try {
     }
   }
 
+  if (-not $SkipDuckDB) {
+    Refresh-DuckDBWarehouse
+  }
+
   Write-Step 'Done'
   Write-Host "Supabase API: $apiUrl"
-  Write-Host 'Web app: http://127.0.0.1:8080'
+  if (Test-Path 'docker-compose.web-local.yml') {
+    Write-Host 'Web app: http://127.0.0.1:8081'
+  } else {
+    Write-Host 'Web app: http://127.0.0.1:8080'
+  }
   Write-Host 'Frontend env file: .env.local.web'
   Write-Host 'Runtime env file: .env.local.runtime'
   Write-Host 'Function env file: .env.local.functions'
+  if (-not $SkipDuckDB) {
+    Write-Host 'DuckDB warehouse: ticketing_warehouse/warehouse.duckdb'
+  }
 } finally {
   Pop-Location
 }

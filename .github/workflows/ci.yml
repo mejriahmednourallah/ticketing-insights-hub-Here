@@ -1,0 +1,102 @@
+name: CI
+
+# Runs on every PR targeting main or develop.
+# Checks: lint, type-check, unit tests, Supabase migration diff, dbt staging tests.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]   # also run on direct pushes to develop
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Frontend checks ───────────────────────────────────────────────────
+  frontend-checks:
+    name: Frontend (lint · type-check · tests)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Vitest unit tests
+        run: npm run test -- --run
+
+  # ── 2. Supabase migration lint ────────────────────────────────────────────
+  supabase-migration-check:
+    name: Supabase migration diff
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Validate pending migrations (dry-run diff)
+        run: supabase db diff --schema public,staging,marts,analytics
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD:  ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+  # ── 3. dbt staging tests ─────────────────────────────────────────────────
+  dbt-test:
+    name: dbt staging tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ticketing_warehouse
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dbt-postgres
+        run: pip install dbt-postgres
+
+      - name: dbt deps
+        run: dbt deps
+
+      - name: dbt compile (syntax check)
+        run: dbt compile
+        env:
+          DBT_SUPABASE_HOST:     ${{ secrets.SUPABASE_DB_HOST }}
+          DBT_SUPABASE_USER:     ${{ secrets.SUPABASE_DB_USER }}
+          DBT_SUPABASE_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DBT_SUPABASE_DBNAME:   postgres
+
+      - name: dbt test staging models
+        run: dbt test --select staging.*
+        env:
+          DBT_SUPABASE_HOST:     ${{ secrets.SUPABASE_DB_HOST }}
+          DBT_SUPABASE_USER:     ${{ secrets.SUPABASE_DB_USER }}
+          DBT_SUPABASE_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DBT_SUPABASE_DBNAME:   postgres

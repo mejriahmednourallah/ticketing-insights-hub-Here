@@ -1,0 +1,48 @@
+# profiles.yml
+#
+# Connection profile for dbt.
+# Credentials come from environment variables so this file is safe to commit.
+#
+# CI/CD: secrets are injected via GitHub Actions env vars (see deploy.yml).
+# Local dev: export the variables in your shell or add them to a .env file
+#            and source it before running dbt commands.
+#
+# NEVER hard-code credentials here.
+
+ticketing_warehouse:
+  target: prod
+  outputs:
+
+    prod:
+      type:     postgres
+      host:     "{{ env_var('DBT_SUPABASE_HOST') }}"
+      port:     5432
+      user:     "{{ env_var('DBT_SUPABASE_USER', 'postgres') }}"
+      password: "{{ env_var('DBT_SUPABASE_PASSWORD') }}"
+      dbname:   "{{ env_var('DBT_SUPABASE_DBNAME', 'postgres') }}"
+      schema:   public       # default schema; models override via +schema
+      threads:  4
+      keepalives_idle: 0
+      connect_timeout: 10
+      # Supabase requires SSL
+      sslmode: require
+
+    dev:
+      type:     postgres
+      host:     "{{ env_var('DBT_SUPABASE_HOST', '127.0.0.1') }}"
+      port:     "{{ env_var('DBT_SUPABASE_PORT', '54322') | int }}"
+      user:     "{{ env_var('DBT_SUPABASE_USER', 'postgres') }}"
+      password: "{{ env_var('DBT_SUPABASE_PASSWORD', 'postgres') }}"
+      dbname:   "{{ env_var('DBT_SUPABASE_DBNAME', 'postgres') }}"
+      schema:   public
+      threads:  2
+      keepalives_idle: 0
+
+    duckdb:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', './warehouse.duckdb') }}"
+      schema: public
+      threads: 2
+      settings:
+        extension_directory: "{{ env_var('DUCKDB_EXTENSION_DIR', 'C:/tmp/ticketing_warehouse_duckdb_extensions') }}"
+        pg_experimental_filter_pushdown: true

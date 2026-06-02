@@ -1,0 +1,8 @@
+services:
+  web:
+    environment:
+      VITE_SUPABASE_URL: http://host.docker.internal:54321
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH
+    ports: !override
+      - "8081:8080"
+    volumes: !override []

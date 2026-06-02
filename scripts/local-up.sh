@@ -151,6 +151,22 @@ trigger_initial_sync() {
   return 1
 }
 
+refresh_duckdb_warehouse() {
+  if [[ "${LOCAL_UP_SKIP_DUCKDB:-0}" == "1" ]]; then
+    echo "Skipping DuckDB warehouse refresh (LOCAL_UP_SKIP_DUCKDB=1)."
+    return 0
+  fi
+
+  echo "Refreshing DuckDB warehouse from scratch..."
+  rm -f "${ROOT_DIR}/ticketing_warehouse/warehouse.duckdb" \
+        "${ROOT_DIR}/ticketing_warehouse/warehouse.duckdb.wal"
+
+  npm run warehouse:duckdb:bootstrap
+  npm run warehouse:duckdb:run
+  npm run warehouse:duckdb:test
+  npm run warehouse:duckdb:validate
+}
+
 compose_cmd() {
   if docker compose version >/dev/null 2>&1; then
     COMPOSE=(docker compose)
@@ -218,6 +234,8 @@ if [[ "${LOCAL_UP_SKIP_INGEST:-0}" != "1" ]]; then
     echo "Skipping initial Redmine sync (REDMINE_URL or REDMINE_API_KEY not configured)."
   fi
 fi
+
+refresh_duckdb_warehouse
 
 if [[ "${LOCAL_UP_NO_WEB:-0}" == "1" ]]; then
   echo "Bootstrap done. Frontend startup skipped (LOCAL_UP_NO_WEB=1)."

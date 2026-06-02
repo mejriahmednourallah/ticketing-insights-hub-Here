@@ -1,0 +1,44 @@
+# =============================================================================
+# Dockerfile.prod — Production multi-stage build
+#
+# Stage 1 (builder): compile the Vite/React app with npm
+# Stage 2 (runner):  serve the static dist/ via nginx
+#
+# The dev Dockerfile (./Dockerfile) uses Bun + hot-reload and is NOT used in
+# CI/CD. This file is used exclusively by .github/workflows/deploy.yml.
+#
+# Build args (injected by GitHub Actions from repository secrets):
+#   VITE_SUPABASE_URL      — https://<project>.supabase.co
+#   VITE_SUPABASE_ANON_KEY — public anon key
+# =============================================================================
+
+# ── Stage 1: build ────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Cache layer: install deps before copying source
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Copy source and inject build-time env vars
+COPY . .
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
+RUN npm run build
+
+# ── Stage 2: serve ────────────────────────────────────────────────────────────
+FROM nginx:1.27-alpine AS runner
+
+# Copy compiled assets
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# SPA routing + gzip config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,57 @@
+version: 2
+
+sources:
+  - name: public
+    description: Raw Redmine tables — written by the redmine-ingest Edge Function.
+    schema: public
+    tables:
+      - name: redmine_issues
+        description: One row per Redmine issue, upserted on each ingest cycle.
+        columns:
+          - name: redmine_id
+            description: Redmine's issue ID (primary key).
+            tests: [unique, not_null]
+
+      - name: redmine_projects
+        description: One row per Redmine project.
+        columns:
+          - name: redmine_id
+            tests: [unique, not_null]
+
+      - name: sla_plan_config
+        description: Maps SLA plan labels to target resolution hours.
+        columns:
+          - name: plan_name
+            tests: [unique, not_null]
+          - name: target_hours
+            tests: [not_null]
+
+models:
+  - name: stg_issues
+    description: >
+      Cleaned, typed copy of redmine_issues. All nullable text coalesced to ''.
+      Adds age_hours, is_open, sla_breached, sla_target_hours.
+    columns:
+      - name: id
+        description: Redmine issue ID.
+        tests: [unique, not_null]
+      - name: project_id
+        tests: [not_null]
+      - name: age_hours
+        description: Hours from created_on to closed_on (or now if open).
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: ">= 0"
+      - name: is_open
+        tests: [not_null]
+      - name: sla_breached
+        tests: [not_null]
+
+  - name: stg_projects
+    description: Cleaned copy of redmine_projects.
+    columns:
+      - name: id
+        tests: [unique, not_null]
+      - name: name
+        tests: [not_null]

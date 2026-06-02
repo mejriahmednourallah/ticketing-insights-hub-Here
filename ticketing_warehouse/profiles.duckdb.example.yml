@@ -1,0 +1,15 @@
+# Copy this target into ticketing_warehouse/profiles.yml or ~/.dbt/profiles.yml.
+# Run from ticketing_warehouse/ with:
+#   python -m dbt.cli.main run --profiles-dir . --target duckdb
+
+ticketing_warehouse:
+  target: duckdb
+  outputs:
+    duckdb:
+      type: duckdb
+      path: ./warehouse.duckdb
+      schema: public
+      threads: 2
+      settings:
+        extension_directory: C:/tmp/ticketing_warehouse_duckdb_extensions
+        pg_experimental_filter_pushdown: true
