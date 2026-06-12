@@ -1,0 +1,1 @@
+"""DuckDB-backed analytics service."""

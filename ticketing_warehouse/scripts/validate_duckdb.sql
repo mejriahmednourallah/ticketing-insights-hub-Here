@@ -14,3 +14,7 @@ SELECT COUNT(*) AS similarity_features_count FROM marts.mart_similarity_features
 SELECT COUNT(*) AS dashboard_count FROM analytics.v_dashboard;
 SELECT COUNT(*) AS team_kpis_count FROM analytics.v_team_kpis;
 SELECT COUNT(*) AS backlog_health_count FROM analytics.v_backlog_health;
+SELECT COUNT(*) AS fact_ticket_count FROM analytics.fct_tickets;
+SELECT COUNT(*) AS mapping_quality_count FROM analytics.v_mapping_quality;
+SELECT COUNT(*) AS mapping_issue_count FROM analytics.v_mapping_issues;
+SELECT COUNT(*) AS mapping_format_issue_count FROM analytics.v_mapping_format_issues;

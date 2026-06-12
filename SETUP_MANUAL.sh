@@ -125,7 +125,9 @@ supabase secrets set \
   SUPABASE_SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}" \
   REDMINE_FIELD_TEAM="${REDMINE_FIELD_TEAM:-Equipe Affectée,Equipe Affectee,team}" \
   REDMINE_FIELD_TECHNOLOGY="${REDMINE_FIELD_TECHNOLOGY:-CMS / Framework,technology,technology_used}" \
-  REDMINE_FIELD_TYPE="${REDMINE_FIELD_TYPE:-Type,type}" \
+  REDMINE_FIELD_NATURE="${REDMINE_FIELD_NATURE:-Nature,nature}" \
+  REDMINE_FIELD_INTERVENTION_TYPE="${REDMINE_FIELD_INTERVENTION_TYPE:-Type d'intervention,intervention_type}" \
+  REDMINE_FIELD_RESOLVED_DATE="${REDMINE_FIELD_RESOLVED_DATE:-Date Resolved,resolved_date}" \
   REDMINE_FIELD_SATISFACTION="${REDMINE_FIELD_SATISFACTION:-Degré de satisfaction,csat_score,satisfaction}" \
   REDMINE_FIELD_SOURCE="${REDMINE_FIELD_SOURCE:-Source,source}" \
   REDMINE_FIELD_CANAL="${REDMINE_FIELD_CANAL:-Canal,channel,canal}" \

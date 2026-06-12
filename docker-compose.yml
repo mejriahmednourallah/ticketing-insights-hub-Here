@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env.local.web
+    environment:
+      VITE_ANALYTICS_API_URL: http://localhost:8000
     command: ["sh", "-lc", "bun install --frozen-lockfile || bun install && bun run dev --host 0.0.0.0 --port 8080"]
     ports:
       - "8080:8080"
@@ -12,5 +14,119 @@ services:
       - .:/app
       - web_node_modules:/app/node_modules
 
+  analytics-api:
+    build:
+      context: .
+      dockerfile: analytics_service/Dockerfile
+    environment:
+      DUCKDB_PATH: /warehouse/warehouse-current.duckdb
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-${VITE_SUPABASE_PUBLISHABLE_KEY:-}}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      ANALYTICS_AUTH_DISABLED: ${ANALYTICS_AUTH_DISABLED:-false}
+      ANALYTICS_CORS_ORIGINS: http://localhost:8080,http://localhost:8081
+    ports:
+      - "8000:8000"
+    volumes:
+      - duckdb_warehouse:/warehouse:ro
+    expose:
+      - "9102"
+    restart: unless-stopped
+
+  warehouse-refresh:
+    build:
+      context: .
+      dockerfile: analytics_service/Dockerfile.worker
+    environment:
+      WAREHOUSE_DIR: /warehouse
+      WAREHOUSE_REFRESH_SECONDS: ${WAREHOUSE_REFRESH_SECONDS:-300}
+      DBT_SUPABASE_HOST: ${DBT_SUPABASE_HOST:-host.docker.internal}
+      DBT_SUPABASE_PORT: ${DBT_SUPABASE_PORT:-54322}
+      DBT_SUPABASE_USER: ${DBT_SUPABASE_USER:-postgres}
+      DBT_SUPABASE_PASSWORD: ${DBT_SUPABASE_PASSWORD:-postgres}
+      DBT_SUPABASE_DBNAME: ${DBT_SUPABASE_DBNAME:-postgres}
+      DUCKDB_EXTENSION_DIR: /tmp/duckdb_extensions
+    volumes:
+      - duckdb_warehouse:/warehouse
+    expose:
+      - "9101"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["monitoring"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change_me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    profiles: ["monitoring"]
+    environment:
+      DATA_SOURCE_URI: ${DBT_SUPABASE_HOST:-host.docker.internal}:${DBT_SUPABASE_PORT:-54322}/${DBT_SUPABASE_DBNAME:-postgres}?sslmode=disable
+      DATA_SOURCE_USER: ${DBT_SUPABASE_USER:-postgres}
+      DATA_SOURCE_PASS: ${DBT_SUPABASE_PASSWORD:-postgres}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    profiles: ["monitoring"]
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    profiles: ["monitoring"]
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    restart: unless-stopped
+
 volumes:
   web_node_modules:
+  duckdb_warehouse:
+  prometheus_data:
+  grafana_data:

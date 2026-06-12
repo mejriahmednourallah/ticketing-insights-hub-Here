@@ -1,0 +1,177 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Service Availability",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "probe_success", "legendFormat": "{{instance}}"}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "type": "stat",
+      "title": "Warehouse Ready",
+      "gridPos": {"h": 5, "w": 4, "x": 6, "y": 0},
+      "targets": [{"expr": "ticketing_warehouse_ready"}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "type": "stat",
+      "title": "Warehouse Age",
+      "gridPos": {"h": 5, "w": 4, "x": 10, "y": 0},
+      "targets": [{"expr": "ticketing_warehouse_age_seconds"}],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "type": "stat",
+      "title": "Tickets / Projects",
+      "gridPos": {"h": 5, "w": 5, "x": 14, "y": 0},
+      "targets": [
+        {"expr": "ticketing_warehouse_tickets", "legendFormat": "Tickets"},
+        {"expr": "ticketing_warehouse_projects", "legendFormat": "Projects"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Mapping Quality",
+      "gridPos": {"h": 5, "w": 5, "x": 19, "y": 0},
+      "targets": [
+        {"expr": "ticketing_mapping_failures", "legendFormat": "Failures"},
+        {"expr": "ticketing_mapping_conflicts", "legendFormat": "Conflicts"},
+        {"expr": "ticketing_mapping_format_issues", "legendFormat": "Formats"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API Request Rate",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 5},
+      "targets": [{"expr": "sum by (route) (rate(ticketing_api_requests_total[5m]))", "legendFormat": "{{route}}"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "API Latency p50 / p95",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 5},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(ticketing_api_request_duration_seconds_bucket[5m])))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(ticketing_api_request_duration_seconds_bucket[5m])))", "legendFormat": "p95"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "API Errors and In-Progress",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 5},
+      "targets": [
+        {"expr": "sum(rate(ticketing_api_requests_total{status=~\"5..\"}[5m]))", "legendFormat": "5xx/s"},
+        {"expr": "sum(ticketing_api_requests_in_progress)", "legendFormat": "In progress"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Warehouse Refresh Duration",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 13},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(ticketing_warehouse_refresh_duration_seconds_bucket[30m])))", "legendFormat": "p95"},
+        {"expr": "ticketing_warehouse_refresh_in_progress", "legendFormat": "In progress"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Warehouse Refresh Results",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 13},
+      "targets": [{"expr": "increase(ticketing_warehouse_refresh_attempts_total[1h])", "legendFormat": "{{result}}"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "PostgreSQL Connections and Locks",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 13},
+      "targets": [
+        {"expr": "sum(pg_stat_activity_count)", "legendFormat": "Connections"},
+        {"expr": "sum(pg_locks_count)", "legendFormat": "Locks"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "PostgreSQL Transactions",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 21},
+      "targets": [
+        {"expr": "sum(rate(pg_stat_database_xact_commit[5m]))", "legendFormat": "Commits/s"},
+        {"expr": "sum(rate(pg_stat_database_xact_rollback[5m]))", "legendFormat": "Rollbacks/s"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "PostgreSQL Database Size",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 21},
+      "targets": [{"expr": "pg_database_size_bytes", "legendFormat": "{{datname}}"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Container CPU",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 21},
+      "targets": [{"expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m]))", "legendFormat": "{{name}}"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Container Memory",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 29},
+      "targets": [{"expr": "container_memory_working_set_bytes{name!=\"\"}", "legendFormat": "{{name}}"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Container Network",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 29},
+      "targets": [
+        {"expr": "sum by (name) (rate(container_network_receive_bytes_total{name!=\"\"}[5m]))", "legendFormat": "{{name}} RX"},
+        {"expr": "sum by (name) (rate(container_network_transmit_bytes_total{name!=\"\"}[5m]))", "legendFormat": "{{name}} TX"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Container Uptime / Restart Visibility",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 29},
+      "targets": [{"expr": "time() - container_start_time_seconds{name!=\"\"}", "legendFormat": "{{name}}"}],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Host CPU and Load",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 37},
+      "targets": [
+        {"expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))", "legendFormat": "CPU"},
+        {"expr": "node_load1", "legendFormat": "Load 1m"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Host Memory",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 37},
+      "targets": [{"expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes", "legendFormat": "Used"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Host Filesystem",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 37},
+      "targets": [{"expr": "1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"}", "legendFormat": "{{mountpoint}}"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": ["ticketing", "operations"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Ticketing Insights Operations",
+  "uid": "ticketing-operations",
+  "version": 1
+}

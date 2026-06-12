@@ -29,6 +29,7 @@ services:
     environment:
       VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-http://localhost:5432}
       VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:-anon_key}
+      VITE_ANALYTICS_API_URL: ${ANALYTICS_PUBLIC_URL:-http://localhost:8000}
       SUPABASE_URL: ${SUPABASE_URL:-http://postgres:5432}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-service_role_key}
     ports:
@@ -41,6 +42,126 @@ services:
       - web_node_modules:/app/node_modules
     restart: unless-stopped
     command: sh -lc "bun install --frozen-lockfile && bun run dev --host 0.0.0.0 --port 8080"
+
+  analytics-api:
+    build:
+      context: .
+      dockerfile: analytics_service/Dockerfile
+    container_name: ticketing_analytics_api
+    environment:
+      DUCKDB_PATH: /warehouse/warehouse-current.duckdb
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-${VITE_SUPABASE_PUBLISHABLE_KEY:-}}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      ANALYTICS_AUTH_DISABLED: ${ANALYTICS_AUTH_DISABLED:-false}
+      ANALYTICS_CORS_ORIGINS: ${ANALYTICS_CORS_ORIGINS:-http://localhost:8080}
+    ports:
+      - "8000:8000"
+    volumes:
+      - duckdb_warehouse:/warehouse:ro
+    expose:
+      - "9102"
+    depends_on:
+      warehouse-refresh:
+        condition: service_started
+    restart: unless-stopped
+
+  warehouse-refresh:
+    build:
+      context: .
+      dockerfile: analytics_service/Dockerfile.worker
+    container_name: ticketing_warehouse_refresh
+    environment:
+      WAREHOUSE_DIR: /warehouse
+      WAREHOUSE_REFRESH_SECONDS: ${WAREHOUSE_REFRESH_SECONDS:-300}
+      DBT_SUPABASE_HOST: postgres
+      DBT_SUPABASE_PORT: 5432
+      DBT_SUPABASE_USER: ${POSTGRES_USER:-postgres}
+      DBT_SUPABASE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      DBT_SUPABASE_DBNAME: ${POSTGRES_DB:-postgres}
+      DUCKDB_EXTENSION_DIR: /tmp/duckdb_extensions
+    volumes:
+      - duckdb_warehouse:/warehouse
+    expose:
+      - "9101"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["monitoring"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change_me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    profiles: ["monitoring"]
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB:-postgres}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER:-postgres}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:-postgres}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    profiles: ["monitoring"]
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    profiles: ["monitoring"]
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    restart: unless-stopped
 
   # Background scheduler for Redmine ingestion
   scheduler:
@@ -56,7 +177,9 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       REDMINE_FIELD_TEAM: ${REDMINE_FIELD_TEAM}
       REDMINE_FIELD_TECHNOLOGY: ${REDMINE_FIELD_TECHNOLOGY}
-      REDMINE_FIELD_TYPE: ${REDMINE_FIELD_TYPE}
+      REDMINE_FIELD_NATURE: ${REDMINE_FIELD_NATURE}
+      REDMINE_FIELD_INTERVENTION_TYPE: ${REDMINE_FIELD_INTERVENTION_TYPE}
+      REDMINE_FIELD_RESOLVED_DATE: ${REDMINE_FIELD_RESOLVED_DATE}
       REDMINE_FIELD_SATISFACTION: ${REDMINE_FIELD_SATISFACTION}
       REDMINE_FIELD_SOURCE: ${REDMINE_FIELD_SOURCE}
       REDMINE_FIELD_CANAL: ${REDMINE_FIELD_CANAL}
@@ -81,3 +204,6 @@ services:
 volumes:
   postgres_data:
   web_node_modules:
+  duckdb_warehouse:
+  prometheus_data:
+  grafana_data:

@@ -1,6 +1,49 @@
 version: 2
 
 models:
+  - name: fct_tickets
+    description: Canonical ticket-level analytical fact served by the DuckDB API.
+    columns:
+      - name: id
+        tests: [unique, not_null]
+      - name: project_name
+        tests: [not_null]
+      - name: field_mapping_json
+        tests: [not_null]
+
+  - name: v_mapping_quality
+    description: Mapping coverage by field, project, and tracker.
+    columns:
+      - name: field_name
+        tests: [not_null]
+      - name: coverage_pct
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: "between 0 and 100"
+
+  - name: v_mapping_issues
+    description: Ticket examples with source-empty or failed mappings.
+    columns:
+      - name: id
+        tests: [not_null]
+      - name: quality_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['source_empty', 'source_absent', 'mapping_failure', 'conflict']
+
+  - name: v_mapping_format_issues
+    description: Invalid resolved-date scalar or array formats found in source provenance.
+    columns:
+      - name: id
+        tests: [not_null]
+      - name: issue_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['invalid_date_or_array']
+
   - name: v_dashboard
     description: Frontend-friendly per-project KPI summary.
     columns:

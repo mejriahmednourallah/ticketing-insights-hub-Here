@@ -116,7 +116,49 @@ npm run warehouse:duckdb:validate
 
 ## Notes
 
-- DuckDB is a local file, not a server.
-- Supabase remains the operational source for the frontend.
-- The frontend still reads Supabase through the existing loaders.
-- DuckDB is the local analytical warehouse at `ticketing_warehouse/warehouse.duckdb`.
+- Supabase remains the durable raw store.
+- DuckDB is the analytical source served through the FastAPI service.
+- The dashboard requests aggregates and paginated rows instead of downloading all tickets.
+
+## Optional Monitoring
+
+Start Prometheus, Grafana, PostgreSQL Exporter, cAdvisor, Node Exporter, and
+Blackbox Exporter with the application:
+
+```powershell
+docker compose --profile monitoring up -d
+```
+
+When using the local web override:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.web-local.yml --profile monitoring up -d
+```
+
+| Service | Address |
+|---|---|
+| Grafana | `http://127.0.0.1:3000` |
+| Prometheus | `http://127.0.0.1:9090` |
+
+Set `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD` in `.env`. Grafana
+automatically loads the Prometheus datasource and the **Ticketing Insights
+Operations** dashboard. Exporter and application metrics ports remain internal to
+Docker.
+
+Verify all Prometheus targets and Grafana provisioning:
+
+```powershell
+npm run monitoring:verify
+```
+
+On Docker Desktop, Node Exporter measures the Linux Docker virtual machine rather
+than the Windows host. On a Linux production server it measures the Docker host.
+
+
+
+CLEAN UP post pc reboot
+ .\scripts\clean-duckdb.ps1 -DryRun
+
+ npx supabase stop
+
+ powershell -ExecutionPolicy Bypass -File scripts/run-local-e2e.ps1

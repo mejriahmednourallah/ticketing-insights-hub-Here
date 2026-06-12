@@ -1,4 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import {
+  selectCustomField,
+  toResolvedTimestamp,
+} from './customFieldMapping.ts';
+import type { FieldMatch, FieldSelector } from './customFieldMapping.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -58,17 +63,19 @@ const REDMINE_DEBUG = /^(1|true|yes|on)$/i.test(Deno.env.get('REDMINE_DEBUG') ||
 const REDMINE_MAX_RETRIES = envPositiveInt('REDMINE_MAX_RETRIES', 5);
 const REDMINE_REQUEST_TIMEOUT_MS = envPositiveInt('REDMINE_REQUEST_TIMEOUT_MS', 20000);
 
-const fieldMappings = {
-  team: parseAliases('REDMINE_FIELD_TEAM', ['Equipe Affectée', 'Equipe Affectee', 'team']),
-  technology: parseAliases('REDMINE_FIELD_TECHNOLOGY', ['CMS / Framework', 'technology', 'technology_used']),
-  type: parseAliases('REDMINE_FIELD_TYPE', ['Nature', "Type d'intervention", 'Type', 'type']),
-  satisfaction: parseAliases('REDMINE_FIELD_SATISFACTION', ['Degré de satisfaction', 'Degrè de satisfaction', 'csat_score', 'satisfaction']),
-  source: parseAliases('REDMINE_FIELD_SOURCE', ['Source', 'source']),
-  canal: parseAliases('REDMINE_FIELD_CANAL', ['Canal', 'channel', 'canal']),
-  segmentClient: parseAliases('REDMINE_FIELD_SEGMENT_CLIENT', ['Segment client', 'customer_segment', 'segment_client']),
-  region: parseAliases('REDMINE_FIELD_REGION', ['Région', 'region']),
-  reopened: parseAliases('REDMINE_FIELD_REOPENED', ['Réouvert', 'reouvert', 'reopened']),
-  slaPlan: parseAliases('REDMINE_FIELD_SLA_PLAN', ['SLA plan', 'sla_plan']),
+const fieldMappings: Record<string, FieldSelector> = {
+  satisfaction: selector('REDMINE_FIELD_SATISFACTION', [1], ['Degré de satisfaction', 'Degrè de satisfaction', 'csat_score', 'satisfaction']),
+  resolvedDate: selector('REDMINE_FIELD_RESOLVED_DATE', [3], ['Date Resolved', 'resolved_date']),
+  technology: selector('REDMINE_FIELD_TECHNOLOGY', [5], ['CMS / Framework', 'technology', 'technology_used']),
+  team: selector('REDMINE_FIELD_TEAM', [8], ['Equipe Affectée', 'Equipe Affectee', 'team']),
+  source: selector('REDMINE_FIELD_SOURCE', [12], ['Source', 'source']),
+  nature: selector('REDMINE_FIELD_NATURE', [17], ['Nature', 'nature']),
+  interventionType: selector('REDMINE_FIELD_INTERVENTION_TYPE', [18], ["Type d'intervention", 'intervention_type']),
+  canal: selector('REDMINE_FIELD_CANAL', [], ['Canal', 'channel', 'canal']),
+  segmentClient: selector('REDMINE_FIELD_SEGMENT_CLIENT', [], ['Segment client', 'customer_segment', 'segment_client']),
+  region: selector('REDMINE_FIELD_REGION', [], ['Région', 'region']),
+  reopened: selector('REDMINE_FIELD_REOPENED', [], ['Réouvert', 'reouvert', 'reopened']),
+  slaPlan: selector('REDMINE_FIELD_SLA_PLAN', [], ['SLA plan', 'sla_plan']),
 };
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -159,43 +166,12 @@ function parseAliases(envName: string, defaults: string[]): string[] {
   return raw.split(',').map(x => x.trim()).filter(Boolean);
 }
 
+function selector(envName: string, ids: number[], defaults: string[]): FieldSelector {
+  return { ids, aliases: parseAliases(envName, defaults) };
+}
+
 function baseUrl(value: string): string {
   return value.endsWith('/') ? value : `${value}/`;
-}
-
-function normalizeToken(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '');
-}
-
-function valueToString(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (Array.isArray(value)) return value.map(valueToString).filter(Boolean).join(', ');
-  return String(value).trim();
-}
-
-function getCustomField(
-  customFields: Array<{ id?: number; name?: string; value?: unknown }> | undefined,
-  aliases: string[],
-): string {
-  if (!customFields || customFields.length === 0) return '';
-
-  const normalizedAliases = aliases.map(normalizeToken);
-
-  // Iterate aliases in priority order, find first matching field
-  for (const alias of normalizedAliases) {
-    const field = customFields.find(cf => {
-      const nameToken = normalizeToken(cf.name || '');
-      const idToken = cf.id !== undefined ? normalizeToken(String(cf.id)) : '';
-      return nameToken === alias || idToken === alias;
-    });
-    if (field) return valueToString(field.value);
-  }
-
-  return '';
 }
 
 function attachmentNames(attachments: Array<{ filename?: string }> | undefined): string {
@@ -487,6 +463,13 @@ Deno.serve(async req => {
       const rows = issues.map(issue => {
         const attachments = issue.attachments ?? [];
         const customFields = issue.custom_fields ?? [];
+        const mapped = Object.fromEntries(
+          Object.entries(fieldMappings).map(([key, mapping]) => [
+            key,
+            selectCustomField(customFields, mapping),
+          ]),
+        ) as Record<string, FieldMatch>;
+        const dashboardType = mapped.nature.value || mapped.interventionType.value;
 
         return {
           redmine_id: issue.id,
@@ -503,19 +486,22 @@ Deno.serve(async req => {
           created_on: issue.created_on ?? null,
           updated_on: issue.updated_on ?? null,
           closed_on: issue.closed_on ?? null,
-          resolved_on: issue.closed_on ?? null,
-          team: getCustomField(customFields, fieldMappings.team),
-          technology: getCustomField(customFields, fieldMappings.technology),
-          type: getCustomField(customFields, fieldMappings.type),
-          satisfaction: getCustomField(customFields, fieldMappings.satisfaction),
-          source: getCustomField(customFields, fieldMappings.source),
+          resolved_on: toResolvedTimestamp(mapped.resolvedDate.value) ?? issue.closed_on ?? null,
+          team: mapped.team.value,
+          technology: mapped.technology.value,
+          type: dashboardType,
+          nature: mapped.nature.value,
+          intervention_type: mapped.interventionType.value,
+          satisfaction: mapped.satisfaction.value,
+          source: mapped.source.value,
           fichiers: attachmentNames(attachments),
           has_attachment: attachments.length > 0,
-          canal: getCustomField(customFields, fieldMappings.canal),
-          segment_client: getCustomField(customFields, fieldMappings.segmentClient),
-          region: getCustomField(customFields, fieldMappings.region),
-          reopened: getCustomField(customFields, fieldMappings.reopened),
-          sla_plan: getCustomField(customFields, fieldMappings.slaPlan),
+          canal: mapped.canal.value,
+          segment_client: mapped.segmentClient.value,
+          region: mapped.region.value,
+          reopened: mapped.reopened.value,
+          sla_plan: mapped.slaPlan.value,
+          field_mapping_json: mapped as unknown as Json,
           attachments_json: attachments as unknown as Json,
           custom_fields_json: customFields as unknown as Json,
           raw_json: issue as unknown as Json,

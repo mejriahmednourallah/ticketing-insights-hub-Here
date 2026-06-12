@@ -37,3 +37,19 @@
 {% macro date_trunc_compat(part, expression) %}
   date_trunc('{{ part }}', {{ expression }})
 {% endmacro %}
+
+{% macro json_mapping_value(expression, key, property) %}
+  {% if target.type == 'duckdb' %}
+    json_extract_string({{ expression }}, '$.{{ key }}.{{ property }}')
+  {% else %}
+    {{ expression }} -> '{{ key }}' ->> '{{ property }}'
+  {% endif %}
+{% endmacro %}
+
+{% macro timestamp_is_valid(expression) %}
+  {% if target.type == 'duckdb' %}
+    try_cast({{ expression }} as timestamp) is not null
+  {% else %}
+    pg_input_is_valid({{ expression }}, 'timestamp')
+  {% endif %}
+{% endmacro %}

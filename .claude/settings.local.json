@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(Get-ChildItem -Path . -Force)",
-      "Bash(Select-Object Name, PSIsContainer)"
+      "Bash(Select-Object Name, PSIsContainer)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\DELL\\\\Documents\\\\GitHub\\\\ticketing-insights-hub\\\\ticketing_warehouse\" -Recurse | Where-Object { -not $_.PSIsContainer } | Sort-Object Length -Descending | Select-Object -First 15 | ForEach-Object { \"{0,10} MB  {1}\" -f [math]::Round\\($_.Length/1MB, 1\\), $_.FullName })"
     ]
   }
 }

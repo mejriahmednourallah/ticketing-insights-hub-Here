@@ -152,7 +152,6 @@ try {
     "REDMINE_REQUEST_TIMEOUT_MS=$($envMap['REDMINE_REQUEST_TIMEOUT_MS'])"
     "REDMINE_FIELD_TEAM=$($envMap['REDMINE_FIELD_TEAM'])"
     "REDMINE_FIELD_TECHNOLOGY=$($envMap['REDMINE_FIELD_TECHNOLOGY'])"
-    "REDMINE_FIELD_TYPE=$($envMap['REDMINE_FIELD_TYPE'])"
     "REDMINE_FIELD_SATISFACTION=$($envMap['REDMINE_FIELD_SATISFACTION'])"
     "REDMINE_FIELD_SOURCE=$($envMap['REDMINE_FIELD_SOURCE'])"
     "REDMINE_FIELD_CANAL=$($envMap['REDMINE_FIELD_CANAL'])"
@@ -160,6 +159,7 @@ try {
     "REDMINE_FIELD_REGION=$($envMap['REDMINE_FIELD_REGION'])"
     "REDMINE_FIELD_REOPENED=$($envMap['REDMINE_FIELD_REOPENED'])"
     "REDMINE_FIELD_SLA_PLAN=$($envMap['REDMINE_FIELD_SLA_PLAN'])"
+    "LOVABLE_API_KEY=$($envMap['LOVABLE_API_KEY'])"
   ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and ($_ -notmatch '=\s*$') }
   $funcEnvPath = Join-Path (Get-Location) 'supabase/functions/.env'
   [System.IO.File]::WriteAllLines($funcEnvPath, $funcEnvLines, [System.Text.UTF8Encoding]::new($false))
@@ -197,10 +197,10 @@ try {
     $composeArgs += @('-f', 'docker-compose.yml', '-f', 'docker-compose.web-local.yml')
   }
 
-  Write-Step 'Stopping web container so env files are not locked'
+  Write-Step 'Stopping application containers so env files are not locked'
   $previousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
-  $dockerArgs = $composeArgs + @('stop', 'web')
+  $dockerArgs = $composeArgs + @('stop', 'web', 'analytics-api', 'warehouse-refresh')
   & docker @dockerArgs 2>$null
   $stopExitCode = $LASTEXITCODE
   $ErrorActionPreference = $previousErrorActionPreference
@@ -217,7 +217,17 @@ try {
   Write-Utf8NoBom '.env.local.web' @(
     "VITE_SUPABASE_URL=$apiUrl"
     "VITE_SUPABASE_PUBLISHABLE_KEY=$anonKey"
+    "VITE_ANALYTICS_API_URL=http://localhost:8000"
   )
+
+  Write-Step 'Generating .env.local.analytics for API authentication'
+  Write-Utf8NoBom '.env.local.analytics' @(
+    "SUPABASE_ANON_KEY=$anonKey"
+    "SUPABASE_JWT_SECRET=$($envMap['SUPABASE_JWT_SECRET'])"
+    "ANALYTICS_AUTH_DISABLED=false"
+  )
+  [System.Environment]::SetEnvironmentVariable('SUPABASE_ANON_KEY', $anonKey, 'Process')
+  [System.Environment]::SetEnvironmentVariable('SUPABASE_JWT_SECRET', [string]$envMap['SUPABASE_JWT_SECRET'], 'Process')
 
   Write-Step 'Generating .env.local.functions for function runtime'
   $functionEnvLines = @(
@@ -229,7 +239,6 @@ try {
     "REDMINE_REQUEST_TIMEOUT_MS=$($envMap['REDMINE_REQUEST_TIMEOUT_MS'])"
     "REDMINE_FIELD_TEAM=$($envMap['REDMINE_FIELD_TEAM'])"
     "REDMINE_FIELD_TECHNOLOGY=$($envMap['REDMINE_FIELD_TECHNOLOGY'])"
-    "REDMINE_FIELD_TYPE=$($envMap['REDMINE_FIELD_TYPE'])"
     "REDMINE_FIELD_SATISFACTION=$($envMap['REDMINE_FIELD_SATISFACTION'])"
     "REDMINE_FIELD_SOURCE=$($envMap['REDMINE_FIELD_SOURCE'])"
     "REDMINE_FIELD_CANAL=$($envMap['REDMINE_FIELD_CANAL'])"
@@ -237,6 +246,7 @@ try {
     "REDMINE_FIELD_REGION=$($envMap['REDMINE_FIELD_REGION'])"
     "REDMINE_FIELD_REOPENED=$($envMap['REDMINE_FIELD_REOPENED'])"
     "REDMINE_FIELD_SLA_PLAN=$($envMap['REDMINE_FIELD_SLA_PLAN'])"
+    "LOVABLE_API_KEY=$($envMap['LOVABLE_API_KEY'])"
     "SUPABASE_URL=$apiUrl"
     "SUPABASE_SERVICE_ROLE_KEY=$serviceRoleKey"
     "SUPABASE_FUNCTIONS_URL=$apiUrl/functions/v1"
@@ -265,18 +275,18 @@ try {
     }
   }
 
-  Write-Step 'Starting web service in Docker'
+  Write-Step 'Starting web and DuckDB analytics services in Docker'
   if ($NoCache) {
-    $dockerArgs = $composeArgs + @('build', '--no-cache', 'web')
+    $dockerArgs = $composeArgs + @('build', '--no-cache', 'web', 'analytics-api', 'warehouse-refresh')
     & docker @dockerArgs
-    if ($LASTEXITCODE -ne 0) { throw 'docker compose build --no-cache web failed' }
-    $dockerArgs = $composeArgs + @('up', '-d', 'web')
+    if ($LASTEXITCODE -ne 0) { throw 'docker compose build --no-cache failed' }
+    $dockerArgs = $composeArgs + @('up', '-d', 'web', 'analytics-api', 'warehouse-refresh')
     & docker @dockerArgs
-    if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d web failed' }
+    if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d failed' }
   } else {
-    $dockerArgs = $composeArgs + @('up', '-d', '--build', 'web')
+    $dockerArgs = $composeArgs + @('up', '-d', '--build', 'web', 'analytics-api', 'warehouse-refresh')
     & docker @dockerArgs
-    if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d --build web failed' }
+    if ($LASTEXITCODE -ne 0) { throw 'docker compose up -d --build failed' }
   }
 
   if (-not $SkipIngest) {
@@ -329,7 +339,23 @@ try {
   }
 
   if (-not $SkipDuckDB) {
-    Refresh-DuckDBWarehouse
+    Write-Step 'Waiting for the refresh worker to publish the DuckDB warehouse'
+    $warehouseReady = $false
+    for ($attempt = 1; $attempt -le 60; $attempt++) {
+      try {
+        $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/v1/health' -Method GET -TimeoutSec 5
+        if ($health.warehouseReady) {
+          $warehouseReady = $true
+          break
+        }
+      } catch {
+        # The API can start before the first atomic warehouse publication.
+      }
+      Start-Sleep -Seconds 5
+    }
+    if (-not $warehouseReady) {
+      throw 'DuckDB refresh worker did not publish a warehouse within five minutes'
+    }
   }
 
   Write-Step 'Done'
@@ -342,8 +368,9 @@ try {
   Write-Host 'Frontend env file: .env.local.web'
   Write-Host 'Runtime env file: .env.local.runtime'
   Write-Host 'Function env file: .env.local.functions'
+  Write-Host 'Analytics API: http://127.0.0.1:8000'
   if (-not $SkipDuckDB) {
-    Write-Host 'DuckDB warehouse: ticketing_warehouse/warehouse.duckdb'
+    Write-Host 'DuckDB warehouse: managed Docker volume duckdb_warehouse'
   }
 } finally {
   Pop-Location

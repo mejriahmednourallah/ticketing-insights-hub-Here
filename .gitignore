@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+coverage/
+analytics_service/coverage.xml
+.coverage
 *.local
 .env
 .env
@@ -28,6 +31,9 @@ supabase/functions/.env
 # local DuckDB/dbt warehouse artifacts
 ticketing_warehouse/warehouse.duckdb
 ticketing_warehouse/warehouse.duckdb.wal
+warehouse-current.duckdb
+warehouse-building.duckdb
+warehouse-building.duckdb.wal
 ticketing_warehouse/target/
 ticketing_warehouse/dbt_packages/
 ticketing_warehouse/logs/
