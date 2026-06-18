@@ -11,6 +11,11 @@ Real-time Redmine ticket analytics dashboard with AI-powered similarity analysis
 
 ## 🚀 Quick Start
 
+### Fully containerized deployment with a temporary Cloudflare URL
+
+See [DEPLOYMENT_QUICK_TUNNEL.md](DEPLOYMENT_QUICK_TUNNEL.md) for the production
+container stack, generated secrets, autohealing, monitoring, and local backups.
+
 ### Option 1: Cloud Supabase (Easy, Recommended)
 ```bash
 # 1. Create Supabase project at https://app.supabase.com
@@ -55,6 +60,27 @@ See **DEPLOYMENT_GUIDE.md** → "Option 3: Server Deployment"
 The `redmine-ingest` edge function reads Redmine data and upserts it into Supabase. A cron job named `redmine_ingest_every_5m` triggers it every 5 minutes.
 
 If you deploy the chat edge function, set its secret in Supabase with `supabase secrets set LOVABLE_API_KEY=...` so it can reach the AI gateway.
+
+## Forecast model analysis
+
+Run a rolling-origin backtest of the forecasting models against the current DuckDB warehouse:
+
+```bash
+npm run forecast:analyze
+```
+
+The script evaluates resolution-delay and ticket-volume forecasts with multi-horizon time-series metrics for 1, 3, and 6 months ahead: MAE, RMSE, WAPE, sMAPE, MASE, bias, 80% interval coverage, and direction accuracy. F1 is not reported because these forecasts are regression/time-series problems, not classification.
+
+Reports are written under `runtime/model-analysis/`:
+
+- `forecast-model-summary.json`: ranked model scoreboard and winning model per scope.
+- `forecast-model-metrics.csv`: one row per target, scope, and candidate model.
+- `forecast-model-horizon-metrics.csv`: one row per target, scope, model, and horizon.
+- `forecast-model-backtests.csv`: every rolling backtest prediction versus actual.
+- `forecast-model-scopes.csv`: scopes included in the run.
+- `forecast-model-quality.prom`: compact Prometheus text snapshot for model diagnostics.
+
+Use `npm run forecast:analyze -- --all-scopes` for every eligible project/team, or pass `--warehouse /path/to/warehouse-current.duckdb` to analyze another warehouse file.
 
 ## Environment variables
 

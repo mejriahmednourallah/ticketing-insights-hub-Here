@@ -8,7 +8,7 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import duckdb
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -16,7 +16,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from analytics_service.auth import require_analytics_token
+from analytics_service.forecasting import (
+    DEFAULT_HORIZON_MONTHS,
+    ForecastUnavailableError,
+    build_forecast,
+    build_ticket_volume_forecast,
+    eligible_scopes,
+    eligible_ticket_volume_scopes,
+)
 from analytics_service.metrics import (
+    FORECAST_BACKTEST_MAE,
+    FORECAST_DURATION,
+    FORECAST_MODEL_SELECTIONS,
+    FORECAST_REQUESTS,
     REQUEST_DURATION,
     REQUESTS,
     REQUESTS_IN_PROGRESS,
@@ -27,7 +39,7 @@ from analytics_service.query import FILTER_COLUMNS, build_where, safe_sort_colum
 
 WAREHOUSE_PATH = Path(os.getenv("DUCKDB_PATH", "/warehouse/warehouse-current.duckdb"))
 FACT = "analytics.fct_tickets"
-NOT_PROVIDED = "Not provided"
+NOT_PROVIDED = "Non renseigné"
 
 
 class FilterRequest(BaseModel):
@@ -46,12 +58,33 @@ class SimilarityRequest(FilterRequest):
     topN: int = Field(default=10, ge=1, le=50)
 
 
+class PredictionScope(BaseModel):
+    type: Literal["global", "project", "team"] = "global"
+    value: str | None = None
+
+
+class ResolutionDelayPredictionRequest(BaseModel):
+    scope: PredictionScope = Field(default_factory=PredictionScope)
+    horizonMonths: int = Field(default=DEFAULT_HORIZON_MONTHS, ge=1, le=12)
+
+
+class TicketVolumePredictionRequest(BaseModel):
+    scope: PredictionScope = Field(default_factory=PredictionScope)
+    horizonMonths: int = Field(default=DEFAULT_HORIZON_MONTHS, ge=1, le=12)
+
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if os.getenv("ANALYTICS_METRICS_DISABLED", "").lower() not in {"1", "true", "yes"}:
         start_api_metrics_server(
             WAREHOUSE_PATH,
+            forecast_summary_path=Path(
+                os.getenv(
+                    "FORECAST_MODEL_SUMMARY_PATH",
+                    "runtime/model-analysis/forecast-model-summary.json",
+                )
+            ),
             port=int(os.getenv("ANALYTICS_METRICS_PORT", "9102")),
         )
     yield
@@ -171,6 +204,116 @@ def filters() -> dict[str, list[str]]:
     return output
 
 
+@app.get(
+    "/v1/predictions/resolution-delay/options",
+    dependencies=[Depends(require_analytics_token)],
+)
+def resolution_delay_prediction_options() -> dict[str, Any]:
+    with connect() as conn:
+        return eligible_scopes(conn)
+
+
+@app.post(
+    "/v1/predictions/resolution-delay",
+    dependencies=[Depends(require_analytics_token)],
+)
+def resolution_delay_prediction(request: ResolutionDelayPredictionRequest) -> dict[str, Any]:
+    scope_type = request.scope.type
+    started = time.perf_counter()
+    status = "success"
+    try:
+        result = build_forecast(
+            WAREHOUSE_PATH,
+            scope_type=scope_type,
+            scope_value=request.scope.value,
+            horizon_months=request.horizonMonths,
+        )
+        model = result["model"]
+        FORECAST_MODEL_SELECTIONS.labels(
+            forecast_type="resolution_delay",
+            scope_type=scope_type,
+            model=model["name"],
+        ).inc()
+        FORECAST_BACKTEST_MAE.labels(
+            forecast_type="resolution_delay",
+            scope_type=scope_type,
+            model=model["name"],
+        ).observe(
+            model["backtestMaeDays"]
+        )
+        return result
+    except ForecastUnavailableError as exc:
+        status = "unavailable"
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        status = "error"
+        raise
+    finally:
+        FORECAST_REQUESTS.labels(
+            forecast_type="resolution_delay",
+            scope_type=scope_type,
+            status=status,
+        ).inc()
+        FORECAST_DURATION.labels(
+            forecast_type="resolution_delay",
+            scope_type=scope_type,
+        ).observe(time.perf_counter() - started)
+
+
+@app.get(
+    "/v1/predictions/ticket-volume/options",
+    dependencies=[Depends(require_analytics_token)],
+)
+def ticket_volume_prediction_options() -> dict[str, Any]:
+    with connect() as conn:
+        return eligible_ticket_volume_scopes(conn)
+
+
+@app.post(
+    "/v1/predictions/ticket-volume",
+    dependencies=[Depends(require_analytics_token)],
+)
+def ticket_volume_prediction(request: TicketVolumePredictionRequest) -> dict[str, Any]:
+    scope_type = request.scope.type
+    started = time.perf_counter()
+    status = "success"
+    try:
+        result = build_ticket_volume_forecast(
+            WAREHOUSE_PATH,
+            scope_type=scope_type,
+            scope_value=request.scope.value,
+            horizon_months=request.horizonMonths,
+        )
+        model = result["model"]
+        FORECAST_MODEL_SELECTIONS.labels(
+            forecast_type="ticket_volume",
+            scope_type=scope_type,
+            model=model["name"],
+        ).inc()
+        FORECAST_BACKTEST_MAE.labels(
+            forecast_type="ticket_volume",
+            scope_type=scope_type,
+            model=model["name"],
+        ).observe(model["backtestMaeTickets"])
+        return result
+    except ForecastUnavailableError as exc:
+        status = "unavailable"
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        status = "error"
+        raise
+    finally:
+        FORECAST_REQUESTS.labels(
+            forecast_type="ticket_volume",
+            scope_type=scope_type,
+            status=status,
+        ).inc()
+        FORECAST_DURATION.labels(
+            forecast_type="ticket_volume",
+            scope_type=scope_type,
+        ).observe(time.perf_counter() - started)
+
+
 @app.post("/v1/dashboard/query", dependencies=[Depends(require_analytics_token)])
 def dashboard(request: FilterRequest) -> dict[str, Any]:
     where, params = build_where(request.filters)
@@ -235,6 +378,17 @@ def dashboard(request: FilterRequest) -> dict[str, Any]:
                 """,
                 params,
             )),
+            "monthlyTrend": clean_records(rows(
+                conn,
+                f"""
+                select date_trunc('month', created_date) as period,
+                       count(*)::integer as value
+                from {FACT}{where}
+                group by 1
+                order by 1
+                """,
+                params,
+            )),
             "technologyByYear": clean_records(rows(
                 conn,
                 f"""
@@ -259,7 +413,7 @@ def dashboard(request: FilterRequest) -> dict[str, Any]:
                 conn,
                 f"""
                 select created_year::integer as year,
-                       round(avg(date_diff('second', created_date, closed_date) / 3600.0), 1) as value
+                       round(avg(date_diff('second', created_date, closed_date) / 86400.0), 1) as value
                 from {FACT}{where}
                 group by 1 order by 1
                 """,
@@ -269,7 +423,7 @@ def dashboard(request: FilterRequest) -> dict[str, Any]:
                 conn,
                 f"""
                 select created_year::integer as year,
-                       round(avg(date_diff('second', created_date, resolved_date) / 3600.0), 1) as value
+                       round(avg(date_diff('second', created_date, resolved_date) / 86400.0), 1) as value
                 from {FACT}{where}
                 group by 1 order by 1
                 """,
@@ -284,10 +438,23 @@ def dashboard(request: FilterRequest) -> dict[str, Any]:
 def ticket_search(request: TicketSearchRequest) -> dict[str, Any]:
     where, params = build_where(request.filters)
     if request.search:
-        search_clause = "(cast(id as varchar) ilike ? or subject ilike ?)"
+        search_columns = [
+            "cast(id as varchar)",
+            "subject",
+            "project_name",
+            "type",
+            "tracker",
+            "source",
+            "team",
+            "author",
+            "assignee",
+            "status",
+            "priority",
+        ]
+        search_clause = "(" + " or ".join(f"coalesce({column}, '') ilike ?" for column in search_columns) + ")"
         where = f"{where} {'and' if where else 'where'} {search_clause}"
         term = f"%{request.search}%"
-        params.extend([term, term])
+        params.extend([term] * len(search_columns))
 
     direction = "asc" if request.sortDirection.lower() == "asc" else "desc"
     sort_column = safe_sort_column(request.sortBy)
@@ -351,7 +518,7 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
             """,
             params,
         )
-    reference = next((item for item in candidates if item["id"] == ticket_id), None)
+    reference = next((item for item in candidates if str(item["id"]) == str(ticket_id)), None)
     if not reference:
         raise HTTPException(status_code=404, detail="Reference ticket not found in filtered data")
 
@@ -362,7 +529,7 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
     scored: list[dict[str, Any]] = []
     distances: list[float] = []
     for item in candidates:
-        if item["id"] == ticket_id:
+        if str(item["id"]) == str(ticket_id):
             continue
         distance = math.sqrt(
             (float(reference.get("created_year") or 0) - float(item.get("created_year") or 0)) ** 2

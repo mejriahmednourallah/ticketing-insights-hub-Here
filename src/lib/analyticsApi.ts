@@ -34,6 +34,7 @@ export type DashboardResponse = {
     assignee: ChartPoint[];
     attachments: ChartPoint[];
     monthly: Array<{ month: number; value: number }>;
+    monthlyTrend: Array<{ period: string; value: number }>;
     technologyByYear: YearChartPoint[];
     trackerByYear: YearChartPoint[];
     avgClosedByYear: Array<{ year: number; value: number | null }>;
@@ -96,6 +97,107 @@ export type QualityResponse = {
   }>;
 };
 
+export type PredictionScopeType = 'global' | 'project' | 'team';
+export type ForecastModelName =
+  | 'seasonal_naive'
+  | 'damped_holt'
+  | 'holt_winters'
+  | 'recent_median'
+  | 'seasonal_median'
+  | 'seasonal_naive_drift'
+  | 'theta'
+  | 'robust_ensemble_top3';
+
+export type PredictionOption = {
+  value: string;
+  historyMonths: number;
+  resolvedTickets?: number;
+  tickets?: number;
+  recentMonths?: number;
+  recentResolvedTickets?: number;
+  recentTickets?: number;
+  type: 'project' | 'team';
+};
+
+export type PredictionOptionsResponse = {
+  projects: PredictionOption[];
+  teams: PredictionOption[];
+  minimumHistoryMonths: number;
+  minimumResolvedTickets?: number;
+  minimumTickets?: number;
+  minimumRecentMonths?: number;
+  minimumRecentTickets?: number;
+  horizonMonths: number;
+};
+
+export type ResolutionDelayPredictionResponse = {
+  scope: { type: PredictionScopeType; value: string | null };
+  historical: Array<{ period: string; medianDays: number; resolvedTickets: number }>;
+  currentMonth: { period: string; medianDays: number; resolvedTickets: number } | null;
+  forecast: Array<{
+    period: string;
+    predictedMedianDays: number;
+    lowerBoundDays: number;
+    upperBoundDays: number;
+  }>;
+  summary: {
+    nextMonthMedianDays: number;
+    sixMonthAverageDays: number;
+    recentThreeMonthMedianDays: number;
+    changePct: number;
+    trend: 'improving' | 'stable' | 'deteriorating';
+    businessInsight: string;
+    reliability: 'Élevée' | 'Modérée' | 'Prudente';
+  };
+  model: {
+    name: ForecastModelName;
+    backtestMaeDays: number;
+    weightedMase?: number;
+    weightedMae?: number;
+    baselineWeightedMase?: number | null;
+    promoted?: boolean;
+    selectionReason?: string;
+    trainingStart: string;
+    trainingEnd: string;
+    historyMonths: number;
+    resolvedTickets: number;
+  };
+};
+
+export type TicketVolumePredictionResponse = {
+  scope: { type: PredictionScopeType; value: string | null };
+  historical: Array<{ period: string; ticketCount: number }>;
+  currentMonth: { period: string; ticketCount: number } | null;
+  forecast: Array<{
+    period: string;
+    predictedTickets: number;
+    lowerBoundTickets: number;
+    upperBoundTickets: number;
+  }>;
+  summary: {
+    nextMonthTickets: number;
+    sixMonthAverageTickets: number;
+    recentThreeMonthAverageTickets: number;
+    changePct: number;
+    trend: 'decreasing' | 'stable' | 'increasing';
+    businessInsight: string;
+    reliability: 'Élevée' | 'Modérée' | 'Prudente';
+  };
+  model: {
+    name: ForecastModelName;
+    backtestMaeTickets: number;
+    weightedMase?: number;
+    weightedMae?: number;
+    baselineWeightedMase?: number | null;
+    promoted?: boolean;
+    selectionReason?: string;
+    trainingStart: string;
+    trainingEnd: string;
+    historyMonths: number;
+    tickets: number;
+  };
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -144,4 +246,36 @@ export async function loadAiContext(filters: Filters): Promise<string> {
 
 export function loadQuality(): Promise<QualityResponse> {
   return request('/v1/quality');
+}
+
+export function loadPredictionOptions(): Promise<PredictionOptionsResponse> {
+  return request('/v1/predictions/resolution-delay/options');
+}
+
+export function loadTicketVolumePredictionOptions(): Promise<PredictionOptionsResponse> {
+  return request('/v1/predictions/ticket-volume/options');
+}
+
+export function loadResolutionDelayPrediction(
+  scope: { type: PredictionScopeType; value?: string },
+): Promise<ResolutionDelayPredictionResponse> {
+  return request('/v1/predictions/resolution-delay', {
+    method: 'POST',
+    body: JSON.stringify({
+      scope: { type: scope.type, value: scope.value || null },
+      horizonMonths: 6,
+    }),
+  });
+}
+
+export function loadTicketVolumePrediction(
+  scope: { type: PredictionScopeType; value?: string },
+): Promise<TicketVolumePredictionResponse> {
+  return request('/v1/predictions/ticket-volume', {
+    method: 'POST',
+    body: JSON.stringify({
+      scope: { type: scope.type, value: scope.value || null },
+      horizonMonths: 6,
+    }),
+  });
 }

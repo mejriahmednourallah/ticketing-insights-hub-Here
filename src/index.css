@@ -2,41 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
-    --background: 40 30% 96%;
-    --foreground: 220 30% 15%;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 30% 15%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 30% 15%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 213 80% 45%;
+    --primary: 174 84% 27%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 40 50% 92%;
-    --secondary-foreground: 220 30% 15%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
 
-    --muted: 220 15% 94%;
-    --muted-foreground: 220 10% 50%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
 
-    --accent: 40 60% 70%;
-    --accent-foreground: 220 30% 15%;
+    --accent: 173 58% 91%;
+    --accent-foreground: 175 84% 20%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 40 30% 82%;
-    --input: 220 15% 90%;
-    --ring: 213 80% 45%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 174 84% 32%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
     --chart-blue: 213 80% 50%;
     --chart-red: 0 75% 55%;
@@ -51,7 +47,7 @@ All colors MUST be HSL.
 
     --sidebar-foreground: 240 5.3% 26.1%;
 
-    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary: 174 84% 27%;
 
     --sidebar-primary-foreground: 0 0% 98%;
 
@@ -109,6 +105,30 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-width: 320px;
+  }
+
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  .executive-card {
+    @apply rounded-2xl border border-slate-200/90 bg-white shadow-[0_10px_35px_-24px_rgba(15,23,42,0.45)];
+  }
+
+  .section-kicker {
+    @apply text-xs font-bold uppercase tracking-[0.16em] text-teal-700;
+  }
+
+  .page-title {
+    @apply mt-1 text-3xl font-bold tracking-tight text-slate-950 md:text-4xl;
+  }
+
+  .page-subtitle {
+    @apply mt-2 max-w-3xl text-sm leading-6 text-slate-500 md:text-base;
   }
 }

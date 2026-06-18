@@ -15,6 +15,10 @@ scrape_configs:
     static_configs:
       - targets: ["warehouse-refresh:9101"]
 
+  - job_name: cloudflared
+    static_configs:
+      - targets: ["cloudflared:2000"]
+
   - job_name: postgres
     static_configs:
       - targets: ["postgres-exporter:9187"]
@@ -22,6 +26,10 @@ scrape_configs:
   - job_name: cadvisor
     static_configs:
       - targets: ["cadvisor:8080"]
+
+  - job_name: docker-exporter
+    static_configs:
+      - targets: ["docker-exporter:9323"]
 
   - job_name: node
     static_configs:
@@ -33,8 +41,9 @@ scrape_configs:
       module: [http_2xx]
     static_configs:
       - targets:
-          - http://web:8080/
+          - http://gateway:8080/healthz
           - http://analytics-api:8000/v1/health
+          - http://kong:8000/auth/v1/health
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

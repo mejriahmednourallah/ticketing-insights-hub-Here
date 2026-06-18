@@ -1,37 +1,40 @@
 # =============================================================================
 # Dockerfile.prod — Production multi-stage build
 #
-# Stage 1 (builder): compile the Vite/React app with npm
-# Stage 2 (runner):  serve the static dist/ via nginx
+# Stage 1 (builder): compile the Vite/React app with Bun
+# Stage 2 (runner):  serve the static dist/ via nginx (used by docker-compose)
 #
-# The dev Dockerfile (./Dockerfile) uses Bun + hot-reload and is NOT used in
-# CI/CD. This file is used exclusively by .github/workflows/deploy.yml.
-#
-# Build args (injected by GitHub Actions from repository secrets):
-#   VITE_SUPABASE_URL      — https://<project>.supabase.co
-#   VITE_SUPABASE_ANON_KEY — public anon key
+# Build args:
+#   VITE_SUPABASE_URL               — public Supabase URL (default: window.location.origin)
+#   VITE_SUPABASE_PUBLISHABLE_KEY   — public anon key
+#   VITE_ANALYTICS_API_URL          — analytics API URL (default: /api/analytics)
 # =============================================================================
 
 # ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM oven/bun:1.1.45 AS builder
 
 WORKDIR /app
 
 # Cache layer: install deps before copying source
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile || bun install
 
 # Copy source and inject build-time env vars
 COPY . .
 ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
+ARG VITE_ANALYTICS_API_URL
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
-ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
+ENV VITE_ANALYTICS_API_URL=$VITE_ANALYTICS_API_URL
 
-RUN npm run build
+RUN bun run build
 
 # ── Stage 2: serve ────────────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runner
+
+# Install wget for healthcheck support
+RUN apk add --no-cache wget
 
 # Copy compiled assets
 COPY --from=builder /app/dist /usr/share/nginx/html

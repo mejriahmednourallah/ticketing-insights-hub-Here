@@ -1,0 +1,149 @@
+name: ticketing-run-everything
+
+services:
+  gateway:
+    image: caddy:2.10.0-alpine
+    restart: unless-stopped
+    env_file:
+      - ./deploy/secrets/runtime.env
+    environment:
+      CADDY_ADMIN_USER: admin
+      CADDY_ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
+      FRONTEND_UPSTREAM: host.docker.internal:8081
+      ANALYTICS_UPSTREAM: host.docker.internal:8000
+      SUPABASE_UPSTREAM: host.docker.internal:54321
+      STUDIO_UPSTREAM: host.docker.internal:54323
+      GRAFANA_UPSTREAM: grafana:3000
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - 127.0.0.1:8080:8080
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - run_everything_caddy_data:/data
+      - run_everything_caddy_config:/config
+    depends_on:
+      grafana:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - 127.0.0.1:9090:9090
+    volumes:
+      - ./monitoring/prometheus/run-everything.yml:/etc/prometheus/prometheus.yml:ro
+      - run_everything_prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    env_file:
+      - ./deploy/secrets/runtime.env
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/admin/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - 127.0.0.1:3000:3000
+    volumes:
+      - run_everything_grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    restart: unless-stopped
+    env_file:
+      - ./deploy/secrets/runtime.env
+    environment:
+      DATA_SOURCE_NAME: postgresql://postgres:postgres@host.docker.internal:54322/postgres?sslmode=disable
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+
+  docker-exporter:
+    image: python:3.12-slim
+    restart: unless-stopped
+    command: ["python", "/app/docker_exporter.py"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DOCKER_EXPORTER_PORT: "9323"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/docker/docker_exporter.py:/app/docker_exporter.py:ro
+    expose:
+      - "9323"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:9323/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+
+volumes:
+  run_everything_caddy_data:
+  run_everything_caddy_config:
+  run_everything_prometheus_data:
+  run_everything_grafana_data:

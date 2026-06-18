@@ -24,6 +24,7 @@
     "local:rebuild-and-verify": "bash scripts/local-rebuild-and-verify.sh",
     "local:e2e:ps": "powershell -ExecutionPolicy Bypass -File scripts/run-local-e2e.ps1",
     "monitoring:verify": "powershell -ExecutionPolicy Bypass -File scripts/verify-monitoring.ps1",
+    "forecast:analyze": "bash scripts/analyze-forecast-models.sh",
     "warehouse:duckdb:bootstrap": "python ticketing_warehouse/scripts/run_duckdb_sql.py ticketing_warehouse/warehouse.duckdb ticketing_warehouse/scripts/bootstrap_duckdb.sql",
     "warehouse:duckdb:run": "cd ticketing_warehouse && python -m dbt.cli.main run --profiles-dir . --target duckdb",
     "warehouse:duckdb:test": "cd ticketing_warehouse && python -m dbt.cli.main test --profiles-dir . --target duckdb",

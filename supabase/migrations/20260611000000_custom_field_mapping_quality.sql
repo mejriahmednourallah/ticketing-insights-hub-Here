@@ -9,7 +9,8 @@ create index if not exists redmine_issues_nature_idx
 create index if not exists redmine_issues_intervention_type_idx
   on public.redmine_issues (intervention_type);
 
-create or replace view public.redmine_ticket_view as
+drop view if exists public.redmine_ticket_view;
+create view public.redmine_ticket_view as
 select
   i.redmine_id::text as id,
   coalesce(i.project_name, '') as project,

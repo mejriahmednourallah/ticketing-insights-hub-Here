@@ -70,8 +70,27 @@
     },
     {
       "type": "timeseries",
-      "title": "Warehouse Refresh Duration",
+      "title": "Forecast Requests and Failures",
       "gridPos": {"h": 8, "w": 8, "x": 0, "y": 13},
+      "targets": [
+        {"expr": "sum by (forecast_type, status) (rate(ticketing_forecast_requests_total[5m]))", "legendFormat": "{{forecast_type}} {{status}}"},
+        {"expr": "histogram_quantile(0.95, sum by (forecast_type, le) (rate(ticketing_forecast_calculation_duration_seconds_bucket[5m])))", "legendFormat": "{{forecast_type}} duration p95"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Forecast Quality",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 13},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (forecast_type, le, model) (rate(ticketing_forecast_backtest_mae_days_bucket[1h])))", "legendFormat": "{{forecast_type}} {{model}} MAE"},
+        {"expr": "sum by (forecast_type, model) (increase(ticketing_forecast_model_selections_total[1h]))", "legendFormat": "{{forecast_type}} {{model}} selections"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "d"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Warehouse Refresh Duration",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 13},
       "targets": [
         {"expr": "histogram_quantile(0.95, sum by (le) (rate(ticketing_warehouse_refresh_duration_seconds_bucket[30m])))", "legendFormat": "p95"},
         {"expr": "ticketing_warehouse_refresh_in_progress", "legendFormat": "In progress"}
@@ -81,13 +100,13 @@
     {
       "type": "timeseries",
       "title": "Warehouse Refresh Results",
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 13},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 21},
       "targets": [{"expr": "increase(ticketing_warehouse_refresh_attempts_total[1h])", "legendFormat": "{{result}}"}]
     },
     {
       "type": "timeseries",
       "title": "PostgreSQL Connections and Locks",
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 13},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 21},
       "targets": [
         {"expr": "sum(pg_stat_activity_count)", "legendFormat": "Connections"},
         {"expr": "sum(pg_locks_count)", "legendFormat": "Locks"}
@@ -96,7 +115,7 @@
     {
       "type": "timeseries",
       "title": "PostgreSQL Transactions",
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 21},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 21},
       "targets": [
         {"expr": "sum(rate(pg_stat_database_xact_commit[5m]))", "legendFormat": "Commits/s"},
         {"expr": "sum(rate(pg_stat_database_xact_rollback[5m]))", "legendFormat": "Rollbacks/s"}
@@ -105,45 +124,45 @@
     {
       "type": "timeseries",
       "title": "PostgreSQL Database Size",
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 21},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 29},
       "targets": [{"expr": "pg_database_size_bytes", "legendFormat": "{{datname}}"}],
       "fieldConfig": {"defaults": {"unit": "bytes"}}
     },
     {
       "type": "timeseries",
       "title": "Container CPU",
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 21},
-      "targets": [{"expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m]))", "legendFormat": "{{name}}"}],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 29},
+      "targets": [{"expr": "ticketing_container_cpu_usage_ratio", "legendFormat": "{{service}}"}],
       "fieldConfig": {"defaults": {"unit": "percentunit"}}
     },
     {
       "type": "timeseries",
       "title": "Container Memory",
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 29},
-      "targets": [{"expr": "container_memory_working_set_bytes{name!=\"\"}", "legendFormat": "{{name}}"}],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 29},
+      "targets": [{"expr": "ticketing_container_memory_working_set_bytes", "legendFormat": "{{service}}"}],
       "fieldConfig": {"defaults": {"unit": "bytes"}}
     },
     {
       "type": "timeseries",
       "title": "Container Network",
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 29},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 37},
       "targets": [
-        {"expr": "sum by (name) (rate(container_network_receive_bytes_total{name!=\"\"}[5m]))", "legendFormat": "{{name}} RX"},
-        {"expr": "sum by (name) (rate(container_network_transmit_bytes_total{name!=\"\"}[5m]))", "legendFormat": "{{name}} TX"}
+        {"expr": "sum by (service) (rate(ticketing_container_network_receive_bytes_total[5m]))", "legendFormat": "{{service}} RX"},
+        {"expr": "sum by (service) (rate(ticketing_container_network_transmit_bytes_total[5m]))", "legendFormat": "{{service}} TX"}
       ],
       "fieldConfig": {"defaults": {"unit": "Bps"}}
     },
     {
       "type": "timeseries",
       "title": "Container Uptime / Restart Visibility",
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 29},
-      "targets": [{"expr": "time() - container_start_time_seconds{name!=\"\"}", "legendFormat": "{{name}}"}],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 37},
+      "targets": [{"expr": "ticketing_container_uptime_seconds", "legendFormat": "{{service}}"}],
       "fieldConfig": {"defaults": {"unit": "s"}}
     },
     {
       "type": "timeseries",
       "title": "Host CPU and Load",
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 37},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 37},
       "targets": [
         {"expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))", "legendFormat": "CPU"},
         {"expr": "node_load1", "legendFormat": "Load 1m"}
@@ -153,16 +172,54 @@
     {
       "type": "timeseries",
       "title": "Host Memory",
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 37},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 45},
       "targets": [{"expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes", "legendFormat": "Used"}],
       "fieldConfig": {"defaults": {"unit": "percentunit"}}
     },
     {
       "type": "timeseries",
       "title": "Host Filesystem",
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 37},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 45},
       "targets": [{"expr": "1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"}", "legendFormat": "{{mountpoint}}"}],
       "fieldConfig": {"defaults": {"unit": "percentunit"}}
+    },
+    {
+      "type": "stat",
+      "title": "Forecast Model Report Freshness",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 53},
+      "targets": [
+        {"expr": "ticketing_forecast_model_report_ready", "legendFormat": "Ready"},
+        {"expr": "ticketing_forecast_model_report_age_seconds", "legendFormat": "Age"},
+        {"expr": "ticketing_forecast_model_report_stale", "legendFormat": "Stale"}
+      ],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 86400}]}}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Selected Forecast Model Quality",
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 53},
+      "targets": [
+        {"expr": "ticketing_forecast_model_selected_weighted_mase", "legendFormat": "{{forecast_type}} {{scope_type}} {{model}} MASE"},
+        {"expr": "ticketing_forecast_model_selected_h1_wape_percent", "legendFormat": "{{forecast_type}} {{scope_type}} {{model}} WAPE"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Forecast Model Wins",
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 53},
+      "targets": [{"expr": "ticketing_forecast_model_wins", "legendFormat": "{{forecast_type}} {{model}}"}]
+    },
+    {
+      "type": "table",
+      "title": "Worst Forecast Scopes",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 60},
+      "targets": [{"expr": "topk(10, ticketing_forecast_model_selected_h1_wape_percent)", "legendFormat": "{{forecast_type}} {{scope_type}} {{scope_value}} {{model}}"}]
+    },
+    {
+      "type": "table",
+      "title": "Selected Models",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 60},
+      "targets": [{"expr": "ticketing_forecast_model_selected", "legendFormat": "{{forecast_type}} {{scope_type}} {{scope_value}} {{model}}"}]
     }
   ],
   "refresh": "15s",

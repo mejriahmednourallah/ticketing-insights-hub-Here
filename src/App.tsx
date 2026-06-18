@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import SimilarityAnalysis from "./pages/SimilarityAnalysis.tsx";
+import Predictions from "./pages/Predictions.tsx";
+import AppShell from "./components/AppShell.tsx";
 
 const queryClient = new QueryClient();
 
@@ -16,8 +18,11 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/similarity" element={<SimilarityAnalysis />} />
+          <Route element={<AppShell />}>
+            <Route path="/" element={<Index />} />
+            <Route path="/similarity" element={<SimilarityAnalysis />} />
+            <Route path="/predictions" element={<Predictions />} />
+          </Route>
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

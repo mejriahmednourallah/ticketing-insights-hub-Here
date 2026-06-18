@@ -115,7 +115,7 @@ supabase functions deploy redmine-ingest \
 From Supabase dashboard → Project Settings → Secrets:
 ```
 REDMINE_URL = https://maintenance.medianet.tn
-REDMINE_API_KEY = 87d2717302449be90768474ec8f55ca669e92b54
+REDMINE_API_KEY = replace_me
 SUPABASE_URL = https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY = <your_service_role_key>
 REDMINE_FIELD_TEAM = Equipe Affectée,Equipe Affectee,team
@@ -243,7 +243,7 @@ Create `server.env`:
 ```bash
 POSTGRES_PASSWORD=your_secure_password
 REDMINE_URL=https://maintenance.medianet.tn
-REDMINE_API_KEY=87d2717302449be90768474ec8f55ca669e92b54
+REDMINE_API_KEY=replace_me
 SUPABASE_URL=http://localhost:5432
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 VITE_SUPABASE_URL=http://your-domain.com

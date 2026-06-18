@@ -1,59 +1,546 @@
+# =============================================================================
+# docker-compose.yml — Fully containerized local deployment with Quick Tunnel
+#
+# Architecture:
+#   cloudflared → Caddy (gateway:8080) → services
+#
+# Caddy routes:
+#   /                         → frontend (nginx :80)
+#   /api/analytics/*          → analytics-api (:8000)
+#   /functions/v1/*           → kong (:8000) → edge-runtime
+#   /admin/studio/*           → Basic Auth → studio (:8082)
+#   /admin/grafana/*          → Basic Auth → grafana (:3000)
+#   /healthz                  → 200 ok (for tunnel health)
+#
+# Secrets:   deploy/secrets/.env.secrets (ignored by Git)
+# Runtime:   runtime/ (ignored by Git)
+# Backups:   deploy/backups/ (ignored by Git)
+# =============================================================================
+
+# ── Variables ────────────────────────────────────────────────────────────────
+x-supabase-postgres-version: &supabase-postgres-version  supabase/postgres:15.6.1.116
+x-supabase-kong-version:    &kong-version          supabase/kong:0.36.3
+x-supabase-auth-version:    &auth-version          supabase/gotrue:v2.164.0
+x-supabase-rest-version:    &rest-version          postgrest/postgrest:v12.2.0
+x-supabase-meta-version:    &meta-version          supabase/postgres-meta:v0.84.1
+x-supabase-studio-version:  &studio-version        supabase/studio:20250101-6a6a6a6a
+x-supabase-edge-version:    &edge-version          supabase/edge-runtime:v1.66.0
+x-cloudflared-version:      &cloudflared-version   cloudflare/cloudflared:2024.10.0
+x-caddy-version:            &caddy-version         caddy:2.9.1-alpine
+x-prometheus-version:       &prometheus-version    prom/prometheus:v2.54.1
+x-grafana-version:          &grafana-version       grafana/grafana:11.2.0
+x-pg-exporter-version:      &pg-exporter-version   prometheuscommunity/postgres-exporter:v0.17.1
+x-node-exporter-version:    &node-exporter-version prom/node-exporter:v1.8.2
+x-cadvisor-version:         &cadvisor-version      gcr.io/cadvisor/cadvisor:v0.49.1
+x-blackbox-version:         &blackbox-version      prom/blackbox-exporter:v0.25.0
+
+# ── Secrets helper — load the secrets file into every service that needs it ─
+x-secrets-env: &secrets-env
+  env_file:
+    - deploy/secrets/runtime.env
+
+# ═════════════════════════════════════════════════════════════════════════════
 services:
-  web:
+
+  # ── 1. PostgreSQL (Supabase fork with pg_cron, pg_net, etc.) ──────────────
+  supabase-postgres:
+    image: *supabase-postgres-version
+    container_name: ticketing_supabase_db
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: '--locale=C'
+    ports:
+      - "127.0.0.1:5432:5432"   # emergency local admin access only
+    volumes:
+      - supabase_db_data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    labels:
+      autoheal: "true"
+
+  # ── 2. Kong API Gateway ────────────────────────────────────────────────────
+  supabase-kong:
+    image: *kong-version
+    container_name: ticketing_supabase_kong
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: supabase-postgres
+      KONG_PG_USER: postgres
+      KONG_PG_PASSWORD: ${POSTGRES_PASSWORD}
+      KONG_PG_DATABASE: postgres
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: '0.0.0.0:8001'
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 128k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 4 256k
+    ports:
+      - "127.0.0.1:8001:8001"   # Kong Admin API — local only
+    expose:
+      - "8000"
+    volumes:
+      - ./supabase/kong.yml:/etc/kong/kong.yml:ro
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8001/status > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    labels:
+      autoheal: "true"
+
+  # ── 3. GoTrue (Auth) ──────────────────────────────────────────────────────
+  supabase-auth:
+    image: *auth-version
+    container_name: ticketing_supabase_auth
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      GOTRUE_SITE_URL: http://localhost:8080
+      GOTRUE_DISABLE_SIGNUP: "true"
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@supabase-postgres:5432/postgres
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_HOST: ""
+      GOTRUE_LOG_LEVEL: warn
+    expose:
+      - "9999"
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9999/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      autoheal: "true"
+
+  # ── 4. PostgREST ──────────────────────────────────────────────────────────
+  supabase-rest:
+    image: *rest-version
+    container_name: ticketing_supabase_rest
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@supabase-postgres:5432/postgres
+      PGRST_DB_SCHEMA: public,staging,marts,analytics
+      PGRST_DB_ANON_ROLE: postgres
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_OPENAPI_SERVER_PROXY_URI: http://localhost:8000
+    expose:
+      - "3000"
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/ > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      autoheal: "true"
+
+  # ── 5. pg_meta (Database Metadata API) ────────────────────────────────────
+  supabase-meta:
+    image: *meta-version
+    container_name: ticketing_supabase_meta
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-postgres
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_META_DB_SSL: disable
+    expose:
+      - "8080"
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      autoheal: "true"
+
+  # ── 6. Edge Runtime (Functions) ────────────────────────────────────────────
+  supabase-edge-runtime:
+    image: *edge-version
+    container_name: ticketing_supabase_edge
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      EDGE_RUNTIME_PORT: 8081
+      EDGE_RUNTIME_SUPABASE_URL: http://supabase-kong:8000
+      EDGE_RUNTIME_SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      EDGE_RUNTIME_PG_URL: postgres://postgres:${POSTGRES_PASSWORD}@supabase-postgres:5432/postgres
+      EDGE_RUNTIME_EVENT_WORKER_URL: ""
+      EDGE_RUNTIME_OBSERVER_URL: ""
+      EDGE_RUNTIME_VERIFICATION_URL: ""
+      EDGE_RUNTIME_LOG_LEVEL: warn
+      JAEGER_URL: ""
+    expose:
+      - "8081"
+    volumes:
+      - ./supabase/functions:/etc/edge-runtime/functions:ro
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/ > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      autoheal: "true"
+
+  # ── 7. Supabase Studio (Admin dashboard) ───────────────────────────────────
+  supabase-studio:
+    image: *studio-version
+    container_name: ticketing_supabase_studio
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      SUPABASE_URL: http://localhost:8080
+      SUPABASE_PUBLIC_URL: http://localhost:8080
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_JWT_SECRET: ${JWT_SECRET}
+      # Subpath mode — Studio is served under /admin/studio
+      BASE_PATH: /admin/studio
+      NEXT_PUBLIC_BASE_PATH: /admin/studio
+    expose:
+      - "8082"
+    depends_on:
+      supabase-meta:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/admin/studio/ > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    labels:
+      autoheal: "true"
+
+  # ── 8. Migration (one-shot — run with: docker compose run --rm migration) ─
+  migration:
+    image: *supabase-postgres-version
+    container_name: ticketing_migration
+    <<: *secrets-env
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./supabase/migrations:/migrations:ro
+      - ./supabase/functions:/functions:ro
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    entrypoint: |
+      sh -c '
+        echo "=== Applying SQL migrations ==="
+        for f in /migrations/*.sql; do
+          echo "  Applying: $$(basename $$f)"
+          psql -h supabase-postgres -U postgres -d postgres -f "$$f" 2>&1 || echo "  WARNING: migration $$(basename $$f) had errors"
+        done
+        echo "=== Migrations complete ==="
+      '
+    profiles: ["setup"]
+
+  # ── 9. Frontend (production nginx build) ──────────────────────────────────
+  frontend:
     build:
       context: .
-      dockerfile: Dockerfile
-    env_file:
-      - .env.local.web
-    environment:
-      VITE_ANALYTICS_API_URL: http://localhost:8000
-    command: ["sh", "-lc", "bun install --frozen-lockfile || bun install && bun run dev --host 0.0.0.0 --port 8080"]
-    ports:
-      - "8080:8080"
-    volumes:
-      - .:/app
-      - web_node_modules:/app/node_modules
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_SUPABASE_URL: http://localhost:8080
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${ANON_KEY}
+        VITE_ANALYTICS_API_URL: http://localhost:8000
+    image: ticketing-frontend:latest
+    container_name: ticketing_frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/healthz > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      autoheal: "true"
 
+  # ── 10. Analytics API (FastAPI + DuckDB) ──────────────────────────────────
   analytics-api:
     build:
       context: .
       dockerfile: analytics_service/Dockerfile
+    image: ticketing-analytics-api:latest
+    container_name: ticketing_analytics_api
+    restart: unless-stopped
+    <<: *secrets-env
     environment:
       DUCKDB_PATH: /warehouse/warehouse-current.duckdb
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-${VITE_SUPABASE_PUBLISHABLE_KEY:-}}
-      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
-      ANALYTICS_AUTH_DISABLED: ${ANALYTICS_AUTH_DISABLED:-false}
-      ANALYTICS_CORS_ORIGINS: http://localhost:8080,http://localhost:8081
-    ports:
-      - "8000:8000"
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_JWT_SECRET: ${JWT_SECRET}
+      ANALYTICS_AUTH_DISABLED: "false"
+      ANALYTICS_CORS_ORIGINS: http://localhost:8080
+      FORECAST_MODEL_SUMMARY_PATH: /runtime/model-analysis/forecast-model-summary.json
+    expose:
+      - "8000"
+      - "9102"
     volumes:
       - duckdb_warehouse:/warehouse:ro
-    expose:
-      - "9102"
-    restart: unless-stopped
+      - ./runtime/model-analysis:/runtime/model-analysis:ro
+    depends_on:
+      warehouse-refresh:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/v1/health > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      autoheal: "true"
 
+  # ── 11. Warehouse Refresh Worker (dbt + DuckDB) ───────────────────────────
   warehouse-refresh:
     build:
       context: .
       dockerfile: analytics_service/Dockerfile.worker
+    image: ticketing-warehouse-refresh:latest
+    container_name: ticketing_warehouse_refresh
+    restart: unless-stopped
+    <<: *secrets-env
     environment:
       WAREHOUSE_DIR: /warehouse
       WAREHOUSE_REFRESH_SECONDS: ${WAREHOUSE_REFRESH_SECONDS:-300}
-      DBT_SUPABASE_HOST: ${DBT_SUPABASE_HOST:-host.docker.internal}
-      DBT_SUPABASE_PORT: ${DBT_SUPABASE_PORT:-54322}
-      DBT_SUPABASE_USER: ${DBT_SUPABASE_USER:-postgres}
-      DBT_SUPABASE_PASSWORD: ${DBT_SUPABASE_PASSWORD:-postgres}
-      DBT_SUPABASE_DBNAME: ${DBT_SUPABASE_DBNAME:-postgres}
+      DBT_SUPABASE_HOST: supabase-postgres
+      DBT_SUPABASE_PORT: 5432
+      DBT_SUPABASE_USER: postgres
+      DBT_SUPABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DBT_SUPABASE_DBNAME: postgres
       DUCKDB_EXTENSION_DIR: /tmp/duckdb_extensions
     volumes:
       - duckdb_warehouse:/warehouse
     expose:
       - "9101"
-    restart: unless-stopped
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9101/ > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    labels:
+      autoheal: "true"
 
+  # ── 12. Scheduler (Redmine ingestion loop) ────────────────────────────────
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ticketing-scheduler:latest
+    container_name: ticketing_scheduler
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      REDMINE_URL: ${REDMINE_URL}
+      REDMINE_API_KEY: ${REDMINE_API_KEY}
+      REDMINE_PAGE_SIZE: ${REDMINE_PAGE_SIZE:-100}
+      REDMINE_PROJECT_BATCH_SIZE: ${REDMINE_PROJECT_BATCH_SIZE:-20}
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      # Use the internal functions endpoint instead of direct Postgres
+      SUPABASE_FUNCTIONS_URL: http://supabase-kong:8000/functions/v1
+      REDMINE_FIELD_TEAM: ${REDMINE_FIELD_TEAM:-}
+      REDMINE_FIELD_TECHNOLOGY: ${REDMINE_FIELD_TECHNOLOGY:-}
+      REDMINE_FIELD_NATURE: ${REDMINE_FIELD_NATURE:-}
+      REDMINE_FIELD_INTERVENTION_TYPE: ${REDMINE_FIELD_INTERVENTION_TYPE:-}
+      REDMINE_FIELD_RESOLVED_DATE: ${REDMINE_FIELD_RESOLVED_DATE:-}
+      REDMINE_FIELD_SATISFACTION: ${REDMINE_FIELD_SATISFACTION:-}
+      REDMINE_FIELD_SOURCE: ${REDMINE_FIELD_SOURCE:-}
+      REDMINE_FIELD_CANAL: ${REDMINE_FIELD_CANAL:-}
+      REDMINE_FIELD_SEGMENT_CLIENT: ${REDMINE_FIELD_SEGMENT_CLIENT:-}
+      REDMINE_FIELD_REGION: ${REDMINE_FIELD_REGION:-}
+      REDMINE_FIELD_REOPENED: ${REDMINE_FIELD_REOPENED:-}
+      REDMINE_FIELD_SLA_PLAN: ${REDMINE_FIELD_SLA_PLAN:-}
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+      supabase-kong:
+        condition: service_healthy
+    entrypoint: |
+      sh -c '
+        echo "Scheduler started. Running ingest every 5 minutes..."
+        while true; do
+          echo "[scheduler] Ingestion run at $$(date +"%Y-%m-%d %H:%M:%S")"
+          bun run ingest:redmine:function 2>&1 || echo "[scheduler] Ingest failed, will retry"
+          sleep 300
+        done
+      '
+    labels:
+      autoheal: "true"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # GATEWAY & NETWORKING
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── 13. Caddy Gateway (reverse proxy) ─────────────────────────────────────
+  caddy:
+    image: *caddy-version
+    container_name: ticketing_caddy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"          # Gateway — the ONLY port cloudflared talks to
+      # Emergency local admin ports (bypass Basic Auth):
+      - "127.0.0.1:8082:8082"  # Direct Studio access
+      - "127.0.0.1:3000:3000"  # Direct Grafana access
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      CADDY_ADMIN_USER: ${CADDY_ADMIN_USER:-admin}
+      CADDY_ADMIN_PASSWORD_HASH: ${CADDY_ADMIN_PASSWORD_HASH}
+      FRONTEND_UPSTREAM: frontend:80
+      ANALYTICS_UPSTREAM: analytics-api:8000
+      KONG_UPSTREAM: supabase-kong:8000
+      STUDIO_UPSTREAM: supabase-studio:8082
+      GRAFANA_UPSTREAM: grafana:3000
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      autoheal: "true"
+
+  # ── 14. Cloudflare Quick Tunnel ───────────────────────────────────────────
+  cloudflared:
+    image: *cloudflared-version
+    container_name: ticketing_cloudflared
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://caddy:8080
+      - --metrics
+      - 0.0.0.0:2000
+      - --log-level
+      - info
+    expose:
+      - "2000"
+    volumes:
+      - cloudflared_state:/home/nonroot/.cloudflared
+      - cloudflared_logs:/var/log/cloudflared
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:2000/ready > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    labels:
+      autoheal: "true"
+
+  # ── 15. URL Watcher (extracts tunnel URL from cloudflared metrics) ────────
+  url-watcher:
+    image: alpine:3.20
+    container_name: ticketing_url_watcher
+    restart: unless-stopped
+    entrypoint: |
+      sh -c '
+        apk add --no-cache curl jq > /dev/null 2>&1
+        echo "[url-watcher] Watching for Quick Tunnel URL..."
+        while true; do
+          URL=$$(curl -sf http://cloudflared:2000/quicktunnel 2>/dev/null | jq -r ".hostname" 2>/dev/null)
+          if [ -n "$$URL" ] && [ "$$URL" != "null" ]; then
+            echo "$$URL" > /runtime/quick-tunnel-url.txt
+            echo "[url-watcher] Tunnel URL: $$URL"
+          else
+            echo "[url-watcher] Waiting for tunnel..."
+          fi
+          sleep 10
+        done
+      '
+    volumes:
+      - runtime_data:/runtime
+    depends_on:
+      cloudflared:
+        condition: service_started
+    labels:
+      autoheal: "true"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AUTOHEALING
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── 16. Autoheal Monitor ──────────────────────────────────────────────────
+  autoheal:
+    build:
+      context: ./deploy/autoheal
+      dockerfile: Dockerfile
+    image: ticketing-autoheal:latest
+    container_name: ticketing_autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CHECK_INTERVAL: 30
+      AUTOHEAL_CONSECUTIVE_FAILURES: 3
+      AUTOHEAL_LABEL: autoheal=true
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    labels:
+      autoheal: "true"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MONITORING
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── 17. Prometheus ────────────────────────────────────────────────────────
   prometheus:
-    image: prom/prometheus:v2.54.1
-    profiles: ["monitoring"]
+    image: *prometheus-version
+    container_name: ticketing_prometheus
+    restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -63,15 +550,27 @@ services:
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    labels:
+      autoheal: "true"
 
+  # ── 18. Grafana ────────────────────────────────────────────────────────────
   grafana:
-    image: grafana/grafana:11.2.0
-    profiles: ["monitoring"]
+    image: *grafana-version
+    container_name: ticketing_grafana
+    restart: unless-stopped
+    <<: *secrets-env
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change_me}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SERVER_ROOT_URL: http://localhost:8080/admin/grafana
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -80,22 +579,48 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      autoheal: "true"
 
+  # ── 19. PostgreSQL Exporter ───────────────────────────────────────────────
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:v0.17.1
-    profiles: ["monitoring"]
-    environment:
-      DATA_SOURCE_URI: ${DBT_SUPABASE_HOST:-host.docker.internal}:${DBT_SUPABASE_PORT:-54322}/${DBT_SUPABASE_DBNAME:-postgres}?sslmode=disable
-      DATA_SOURCE_USER: ${DBT_SUPABASE_USER:-postgres}
-      DATA_SOURCE_PASS: ${DBT_SUPABASE_PASSWORD:-postgres}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    image: *pg-exporter-version
+    container_name: ticketing_pg_exporter
     restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      DATA_SOURCE_URI: supabase-postgres:5432/postgres?sslmode=disable
+      DATA_SOURCE_USER: postgres
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    labels:
+      autoheal: "true"
 
+  # ── 20. Node Exporter ─────────────────────────────────────────────────────
+  node-exporter:
+    image: *node-exporter-version
+    container_name: ticketing_node_exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    labels:
+      autoheal: "true"
+
+  # ── 21. cAdvisor ──────────────────────────────────────────────────────────
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
-    profiles: ["monitoring"]
+    image: *cadvisor-version
+    container_name: ticketing_cadvisor
+    restart: unless-stopped
     privileged: true
     devices:
       - /dev/kmsg:/dev/kmsg
@@ -105,28 +630,105 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
       - /dev/disk:/dev/disk:ro
-    restart: unless-stopped
+    labels:
+      autoheal: "true"
 
-  node-exporter:
-    image: prom/node-exporter:v1.8.2
-    profiles: ["monitoring"]
-    command:
-      - --path.rootfs=/host
+  docker-exporter:
+    image: python:3.12-slim
+    container_name: ticketing_docker_exporter
+    restart: unless-stopped
+    command: ["python", "/app/docker_exporter.py"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DOCKER_EXPORTER_PORT: "9323"
     volumes:
-      - /:/host:ro,rslave
-    restart: unless-stopped
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/docker/docker_exporter.py:/app/docker_exporter.py:ro
+    expose:
+      - "9323"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:9323/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    labels:
+      autoheal: "true"
 
+  # ── 22. Blackbox Exporter ─────────────────────────────────────────────────
   blackbox-exporter:
-    image: prom/blackbox-exporter:v0.25.0
-    profiles: ["monitoring"]
+    image: *blackbox-version
+    container_name: ticketing_blackbox
+    restart: unless-stopped
     command:
       - --config.file=/etc/blackbox_exporter/config.yml
     volumes:
       - ./monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
-    restart: unless-stopped
+    labels:
+      autoheal: "true"
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # BACKUPS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── 23. Backup Service (daily pg_dump + config) ───────────────────────────
+  backup:
+    image: *supabase-postgres-version
+    container_name: ticketing_backup
+    restart: unless-stopped
+    <<: *secrets-env
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: supabase-postgres
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      BACKUP_DIR: /backups
+      RETAIN_DAILY: ${BACKUP_RETAIN_DAILY:-14}
+      RETAIN_WEEKLY: ${BACKUP_RETAIN_WEEKLY:-8}
+    volumes:
+      - ./deploy/scripts/backup.sh:/usr/local/bin/backup.sh:ro
+      - ${BACKUP_DIR:-./deploy/backups}:/backups
+      - ./supabase/migrations:/migrations:ro
+      - ./Caddyfile:/config/Caddyfile:ro
+      - ./supabase/kong.yml:/config/kong.yml:ro
+      - ./docker-compose.yml:/config/docker-compose.yml:ro
+    depends_on:
+      supabase-postgres:
+        condition: service_healthy
+    entrypoint: |
+      sh -c '
+        chmod +x /usr/local/bin/backup.sh
+        echo "[backup] Service started. Daily backup at 03:00, weekly on Sunday 03:00."
+        while true; do
+          NOW=$$(date +"%H:%M")
+          DOW=$$(date +"%u")
+          if [ "$$NOW" = "03:00" ]; then
+            if [ "$$DOW" = "7" ]; then
+              /usr/local/bin/backup.sh weekly
+            else
+              /usr/local/bin/backup.sh daily
+            fi
+            sleep 90
+          fi
+          sleep 30
+        done
+      '
+    labels:
+      autoheal: "true"
+
+# ═════════════════════════════════════════════════════════════════════════════
 volumes:
-  web_node_modules:
+  supabase_db_data:
   duckdb_warehouse:
   prometheus_data:
   grafana_data:
+  cloudflared_state:
+  cloudflared_logs:
+  runtime_data:
+  caddy_data:
+  caddy_config:

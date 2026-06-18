@@ -13,12 +13,25 @@ dist-ssr
 coverage/
 analytics_service/coverage.xml
 .coverage
+.venv/
+__pycache__/
+*.py[cod]
+vite.config.ts.timestamp-*.mjs
 *.local
 .env
-.env
+.env.*
 !.env.example
+!*.example
 
 # generated local runtime env from bootstrap
+.env.local.functions
+.env.local.runtime
+.env.local.web
+
+# production deployment secrets and runtime state
+deploy/secrets/
+deploy/backups/
+runtime/
 
 
 # function secrets injected by run-local-e2e.ps1 (contains real API keys)
@@ -38,6 +51,7 @@ ticketing_warehouse/target/
 ticketing_warehouse/dbt_packages/
 ticketing_warehouse/logs/
 ticketing_warehouse/.duckdb_extensions/
+ticketing_warehouse/C:/
 
 # Editor directories and files
 .vscode/*

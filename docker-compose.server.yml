@@ -145,6 +145,31 @@ services:
       - /dev/disk:/dev/disk:ro
     restart: unless-stopped
 
+  docker-exporter:
+    image: python:3.12-slim
+    profiles: ["monitoring"]
+    command: ["python", "/app/docker_exporter.py"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DOCKER_EXPORTER_PORT: "9323"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/docker/docker_exporter.py:/app/docker_exporter.py:ro
+    expose:
+      - "9323"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:9323/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
   node-exporter:
     image: prom/node-exporter:v1.8.2
     profiles: ["monitoring"]

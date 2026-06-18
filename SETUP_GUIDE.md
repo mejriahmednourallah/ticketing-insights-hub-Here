@@ -67,7 +67,7 @@ EOF
 ```bash
 supabase secrets set \
   REDMINE_URL=https://maintenance.medianet.tn \
-  REDMINE_API_KEY=87d2717302449be90768474ec8f55ca669e92b54 \
+  REDMINE_API_KEY=replace_me \
   REDMINE_PAGE_SIZE=100 \
   SUPABASE_URL=http://127.0.0.1:54321 \
   SUPABASE_SERVICE_ROLE_KEY=<votre_service_role_key> \

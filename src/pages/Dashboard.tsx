@@ -1,30 +1,68 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Pie, PieChart,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
-import { Button } from '@/components/ui/button';
 import AIChatPanel from '@/components/AIChatPanel';
 import ChartCard from '@/components/dashboard/ChartCard';
 import DashboardFilters from '@/components/dashboard/DashboardFilters';
 import IssuesTable from '@/components/dashboard/IssuesTable';
 import KPICards from '@/components/dashboard/KPICards';
 import {
-  DashboardResponse, FilterOptions, QualityResponse, TicketSearchResponse,
-  loadAiContext, loadDashboard, loadFilterOptions, loadQuality, searchTickets,
+  DashboardResponse,
+  FilterOptions,
+  TicketSearchResponse,
+  loadAiContext,
+  loadDashboard,
+  loadFilterOptions,
+  searchTickets,
 } from '@/lib/analyticsApi';
 import { defaultFilters, Filters } from '@/lib/dashboardFilters';
-import { MONTH_NAMES } from '@/lib/parseTickets';
 
-const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#22c55e', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 const EMPTY_TICKETS: TicketSearchResponse = { items: [], page: 1, pageSize: 50, total: 0, totalPages: 0 };
+const CHART_COLORS = [
+  '#0f766e',
+  '#2563eb',
+  '#7c3aed',
+  '#db2777',
+  '#f97316',
+  '#16a34a',
+  '#0891b2',
+  '#ca8a04',
+  '#dc2626',
+  '#475569',
+];
+const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
+const LEGACY_EMPTY_LABEL = ['Not', 'provided'].join(' ');
+
+const displayName = (value: string | null | undefined) => (
+  !value || value === LEGACY_EMPTY_LABEL ? 'Non renseigné' : value
+);
+
+function chartData(data: Array<{ name: string; value: number | null }>, limit?: number) {
+  return data
+    .slice(0, limit)
+    .map(point => ({ ...point, name: displayName(point.name), value: point.value ?? 0 }));
+}
 
 function groupedByYear(points: Array<{ name: string; year: number; value: number }>, years: number[]) {
   const output = new Map<string, Record<string, string | number>>();
   points.forEach(point => {
-    const item = output.get(point.name) ?? { name: point.name };
+    const name = displayName(point.name);
+    const item = output.get(name) ?? { name };
     item[String(point.year)] = point.value;
-    output.set(point.name, item);
+    output.set(name, item);
   });
   return [...output.values()].map(item => {
     years.forEach(year => { item[String(year)] ??= 0; });
@@ -32,158 +70,295 @@ function groupedByYear(points: Array<{ name: string; year: number; value: number
   });
 }
 
-function SimpleBar({ data, horizontal = false }: { data: Array<{ name: string; value: number | null }>; horizontal?: boolean }) {
+function NoData() {
   return (
-    <ResponsiveContainer width="100%" height={250}>
-      <BarChart data={data} layout={horizontal ? 'vertical' : 'horizontal'}>
-        <CartesianGrid strokeDasharray="3 3" />
+    <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+      Aucune donnée disponible
+    </div>
+  );
+}
+
+function BusinessBar({ data, horizontal = false, colorOffset = 0 }: {
+  data: Array<{ name: string; value: number | null }>;
+  horizontal?: boolean;
+  colorOffset?: number;
+}) {
+  const normalized = chartData(data);
+  if (!normalized.length) return <NoData />;
+
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={normalized} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ left: horizontal ? 12 : 0 }}>
+        <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
         {horizontal
-          ? <><XAxis type="number" /><YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 10 }} /></>
-          : <><XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-25} textAnchor="end" height={65} /><YAxis /></>}
-        <Tooltip />
-        <Bar dataKey="value" fill="#3b82f6"><LabelList dataKey="value" position="top" fontSize={10} /></Bar>
+          ? <><XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} /><YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 10, fill: '#475569' }} /></>
+          : <><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} angle={-20} textAnchor="end" height={60} /><YAxis tick={{ fontSize: 11, fill: '#64748b' }} /></>}
+        <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0' }} />
+        <Bar dataKey="value" name="Tickets" radius={horizontal ? [0, 8, 8, 0] : [8, 8, 0, 0]}>
+          {normalized.map((_, index) => (
+            <Cell key={`bar-${index}`} fill={CHART_COLORS[(index + colorOffset) % CHART_COLORS.length]} />
+          ))}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );
 }
 
-function QualityPanel({ quality }: { quality: QualityResponse | null }) {
-  if (!quality) return null;
+function BusinessDonut({ data }: { data: Array<{ name: string; value: number | null }> }) {
+  const normalized = chartData(data);
+  if (!normalized.length) return <NoData />;
+
   return (
-    <details className="mb-4 rounded-lg border bg-card p-4">
-      <summary className="cursor-pointer font-semibold text-primary">Qualité du mapping Redmine</summary>
-      <p className="mt-2 text-xs text-muted-foreground">
-        Entrepôt publié: {new Date(quality.warehouseUpdatedAt).toLocaleString()}
-        {' · '}Formats de date invalides: {quality.formatIssueCount}
-      </p>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-        {quality.summary.map(item => (
-          <div key={item.field_name} className="rounded border p-3 text-sm">
-            <p className="font-medium">{item.field_name}</p>
-            <p>Couverture: {item.coveragePct}%</p>
-            <p>Source non renseignée: {item.sourceEmptyCount}</p>
-            <p>Champ absent de la réponse: {item.sourceAbsentCount}</p>
-            <p className={item.mappingFailureCount ? 'text-destructive font-bold' : ''}>Échecs de mapping: {item.mappingFailureCount}</p>
-            <p className={item.conflictCount ? 'text-amber-600 font-bold' : ''}>Conflits de candidats: {item.conflictCount}</p>
-          </div>
-        ))}
-      </div>
-    </details>
+    <ResponsiveContainer width="100%" height={280}>
+      <PieChart>
+        <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0' }} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Pie data={normalized} dataKey="value" nameKey="name" innerRadius={58} outerRadius={96} paddingAngle={2}>
+          {normalized.map((_, index) => (
+            <Cell key={`slice-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+          ))}
+        </Pie>
+      </PieChart>
+    </ResponsiveContainer>
   );
 }
+
+function StackedYearBars({ data, years }: {
+  data: Array<Record<string, string | number>>;
+  years: number[];
+}) {
+  if (!data.length || !years.length) return <NoData />;
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart data={data}>
+        <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
+        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} angle={-20} textAnchor="end" height={70} />
+        <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+        <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0' }} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        {years.map((year, index) => (
+          <Bar key={year} dataKey={String(year)} stackId="year" fill={CHART_COLORS[index % CHART_COLORS.length]} name={String(year)} />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+export const monthLabel = (period: string | null | undefined) => {
+  if (!period) return 'Mois inconnu';
+
+  const match = String(period).match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+  const date = match
+    ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3] ?? '1')))
+    : new Date(period);
+
+  if (!Number.isFinite(date.getTime())) return 'Mois inconnu';
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    month: 'short',
+    year: '2-digit',
+    timeZone: 'UTC',
+  }).format(date);
+};
 
 export default function Dashboard() {
   const [filters, setFilters] = useState<Filters>({ ...defaultFilters });
   const [options, setOptions] = useState<FilterOptions>({});
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [tickets, setTickets] = useState<TicketSearchResponse>(EMPTY_TICKETS);
-  const [quality, setQuality] = useState<QualityResponse | null>(null);
   const [aiContext, setAiContext] = useState('');
   const [page, setPage] = useState(1);
+  const [ticketSearchInput, setTicketSearchInput] = useState('');
+  const [ticketSearch, setTicketSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([loadFilterOptions(), loadQuality()])
-      .then(([filterOptions, qualityData]) => {
-        setOptions(filterOptions);
-        setQuality(qualityData);
-      })
-      .catch(err => setError(err instanceof Error ? err.message : String(err)));
+    loadFilterOptions()
+      .then(setOptions)
+      .catch(() => setError('Les filtres ne sont pas disponibles pour le moment.'));
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setTicketSearch(ticketSearchInput.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [ticketSearchInput]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setLoading(true);
       setError(null);
-      Promise.all([loadDashboard(filters), searchTickets(filters, page), loadAiContext(filters)])
+      Promise.all([loadDashboard(filters), searchTickets(filters, page, 50, ticketSearch), loadAiContext(filters)])
         .then(([dashboardData, ticketData, context]) => {
           setDashboard(dashboardData);
           setTickets(ticketData);
           setAiContext(context);
         })
-        .catch(err => setError(err instanceof Error ? err.message : String(err)))
+        .catch(() => setError('Impossible d’actualiser les indicateurs. Réessayez dans quelques instants.'))
         .finally(() => setLoading(false));
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [filters, page]);
+  }, [filters, page, ticketSearch]);
 
   const updateFilters = (next: Filters) => {
     setPage(1);
     setFilters(next);
   };
 
-  const technologyByYear = useMemo(
-    () => groupedByYear(dashboard?.charts.technologyByYear ?? [], dashboard?.years ?? []),
+  const monthlyTrend = useMemo(
+    () => (dashboard?.charts.monthlyTrend ?? []).slice(-18).map(point => ({
+      name: monthLabel(point.period),
+      value: point.value,
+    })),
     [dashboard],
   );
-  const trackerByYear = useMemo(
-    () => groupedByYear(dashboard?.charts.trackerByYear ?? [], dashboard?.years ?? []),
-    [dashboard],
-  );
-  const monthly = useMemo(() => MONTH_NAMES.map((name, index) => ({
-    name,
-    value: dashboard?.charts.monthly.find(item => item.month === index + 1)?.value ?? 0,
-  })), [dashboard]);
 
-  if (loading && !dashboard) return <div className="flex min-h-screen items-center justify-center">Construction des analytics DuckDB...</div>;
-  if (error && !dashboard) return <div className="p-8 text-destructive">Analytics indisponibles: {error}</div>;
+  const monthlySeasonality = useMemo(
+    () => (dashboard?.charts.monthly ?? []).map(point => ({
+      name: MONTH_LABELS[point.month - 1] ?? String(point.month),
+      value: point.value,
+    })),
+    [dashboard],
+  );
+
+  const technologyByYear = useMemo(
+    () => dashboard ? groupedByYear(dashboard.charts.technologyByYear.slice(0, 60), dashboard.years) : [],
+    [dashboard],
+  );
+
+  const trackerByYear = useMemo(
+    () => dashboard ? groupedByYear(dashboard.charts.trackerByYear.slice(0, 60), dashboard.years) : [],
+    [dashboard],
+  );
+
+  const delayTrend = useMemo(() => {
+    if (!dashboard) return [];
+    const years = new Map<number, { year: string; resolved?: number | null; closed?: number | null }>();
+    dashboard.charts.avgResolvedByYear.forEach(point => {
+      years.set(point.year, { ...(years.get(point.year) ?? { year: String(point.year) }), resolved: point.value });
+    });
+    dashboard.charts.avgClosedByYear.forEach(point => {
+      years.set(point.year, { ...(years.get(point.year) ?? { year: String(point.year) }), closed: point.value });
+    });
+    return [...years.values()];
+  }, [dashboard]);
+
+  if (loading && !dashboard) {
+    return <div className="flex min-h-[60vh] items-center justify-center font-semibold text-slate-600">Chargement de vos indicateurs…</div>;
+  }
+  if (error && !dashboard) {
+    return <div className="executive-card border-red-200 bg-red-50 p-6 text-red-800">{error}</div>;
+  }
   if (!dashboard) return null;
 
   const charts = dashboard.charts;
-  const yearChart = (data: Array<Record<string, string | number>>) => (
-    <ResponsiveContainer width="100%" height={250}>
-      <BarChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" tick={{ fontSize: 9 }} /><YAxis /><Tooltip /><Legend />
-        {dashboard.years.map((year, index) => <Bar key={year} dataKey={String(year)} fill={COLORS[index % COLORS.length]} />)}
-      </BarChart>
-    </ResponsiveContainer>
-  );
 
   return (
-    <div className="min-h-screen bg-background p-4 md:p-6">
-      <div className="flex items-center gap-4 mb-2 flex-wrap">
-        <h1 className="text-2xl md:text-3xl font-bold text-primary">Système de Ticketing</h1>
-        <a href="/similarity" className="text-sm text-muted-foreground hover:text-primary">Analyse de Similarité →</a>
-        <Button variant="outline" size="sm" onClick={() => updateFilters({ ...defaultFilters })}>Réinitialiser</Button>
-      </div>
-      <p className="text-sm text-muted-foreground mb-4">
-        Analytics servis par DuckDB — {dashboard.kpis.totalTickets} tickets filtrés / {dashboard.kpis.globalTickets} total
-        {loading ? ' — mise à jour...' : ''}
-      </p>
-      {error && <p className="text-sm text-destructive mb-3">{error}</p>}
+    <div className="space-y-6">
+      <section className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="section-kicker">Pilotage opérationnel</p>
+          <h1 className="page-title">Vue d’ensemble</h1>
+          <p className="page-subtitle">
+            Vue actualisée de l’activité — {dashboard.kpis.totalTickets.toLocaleString('fr-FR')} tickets dans le périmètre sélectionné.
+          </p>
+        </div>
+        {loading && <span className="text-xs font-medium text-teal-700">Actualisation en cours…</span>}
+      </section>
 
-      <QualityPanel quality={quality} />
+      {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
+
+      <DashboardFilters options={options} filters={filters} onChange={updateFilters} />
       <KPICards kpis={dashboard.kpis} />
 
-      <div className="flex gap-4">
-        <div className="w-64 min-w-[240px] shrink-0 hidden lg:block overflow-y-auto max-h-[calc(100vh-120px)] sticky top-4">
-          <DashboardFilters options={options} filters={filters} onChange={updateFilters} />
+      <section>
+        <div className="mb-4">
+          <p className="section-kicker">Points clés</p>
+          <h2 className="text-xl font-bold text-slate-950">Comprendre l’activité en un coup d’œil</h2>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <ChartCard title="Tickets par priorité"><SimpleBar data={charts.priority} /></ChartCard>
-            <ChartCard title="Tickets par CMS / Framework et année">{yearChart(technologyByYear)}</ChartCard>
-            <ChartCard title="Tickets par projet"><SimpleBar data={charts.project} /></ChartCard>
-            <ChartCard title="Sujets les plus fréquents"><SimpleBar data={charts.subject} /></ChartCard>
-            <ChartCard title="Tickets par équipe"><SimpleBar data={charts.team} horizontal /></ChartCard>
-            <ChartCard title="Tickets par tracker et année">{yearChart(trackerByYear)}</ChartCard>
-            <ChartCard title="Tickets par mois"><SimpleBar data={monthly} /></ChartCard>
-            <ChartCard title="Délai moyen fermé par année"><SimpleBar data={charts.avgClosedByYear.map(item => ({ name: String(item.year), value: item.value }))} /></ChartCard>
-            <ChartCard title="Délai moyen résolu par année"><SimpleBar data={charts.avgResolvedByYear.map(item => ({ name: String(item.year), value: item.value }))} /></ChartCard>
-            <ChartCard title="Tickets par source"><SimpleBar data={charts.source} horizontal /></ChartCard>
-            <ChartCard title="Tickets par statut"><SimpleBar data={charts.status} horizontal /></ChartCard>
-            <ChartCard title="Tickets par type">
-              <ResponsiveContainer width="100%" height={250}><PieChart><Pie data={charts.type} dataKey="value" nameKey="name" outerRadius={90} label>{charts.type.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
-            </ChartCard>
-            <ChartCard title="Tickets par satisfaction"><SimpleBar data={charts.satisfaction} /></ChartCard>
-            <ChartCard title="Tickets par auteur"><SimpleBar data={charts.author} /></ChartCard>
-            <ChartCard title="Tickets par assigné"><SimpleBar data={charts.assignee} /></ChartCard>
-            <ChartCard title="Tickets avec fichiers"><SimpleBar data={charts.attachments} /></ChartCard>
-          </div>
-          <IssuesTable result={tickets} onPageChange={setPage} />
+        <div className="grid gap-5 lg:grid-cols-2">
+          <ChartCard title="Répartition par statut"><BusinessBar data={charts.status.slice(0, 10)} horizontal /></ChartCard>
+          <ChartCard title="Répartition par priorité"><BusinessDonut data={charts.priority} /></ChartCard>
+          <ChartCard title="Évolution mensuelle des tickets">
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={monthlyTrend}>
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} minTickGap={24} />
+                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+                <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0' }} />
+                <Line dataKey="value" name="Tickets" type="monotone" stroke="#0f766e" strokeWidth={3} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartCard>
+          <ChartCard title="Activité par équipe"><BusinessBar data={charts.team.slice(0, 10)} horizontal colorOffset={2} /></ChartCard>
+          <ChartCard title="Projets les plus sollicités"><BusinessBar data={charts.project.slice(0, 10)} horizontal colorOffset={4} /></ChartCard>
+          <ChartCard title="Évolution des délais moyens" subtitle="En jours, selon l’année de création">
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={delayTrend}>
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
+                <XAxis dataKey="year" tick={{ fontSize: 11, fill: '#64748b' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} unit=" j" />
+                <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0' }} />
+                <Legend />
+                <Line dataKey="resolved" name="Résolution" type="monotone" stroke="#0d9488" strokeWidth={3} />
+                <Line dataKey="closed" name="Clôture" type="monotone" stroke="#2563eb" strokeWidth={3} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartCard>
         </div>
-      </div>
+      </section>
+
+      <section>
+        <div className="mb-4">
+          <p className="section-kicker">Canaux et typologies</p>
+          <h2 className="text-xl font-bold text-slate-950">Où se concentre la demande</h2>
+        </div>
+        <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
+          <ChartCard title="Origine des demandes"><BusinessBar data={charts.source.slice(0, 10)} colorOffset={1} /></ChartCard>
+          <ChartCard title="Types de tickets"><BusinessBar data={charts.type.slice(0, 10)} colorOffset={3} /></ChartCard>
+          <ChartCard title="Satisfaction déclarée"><BusinessDonut data={charts.satisfaction.slice(0, 8)} /></ChartCard>
+          <ChartCard title="Avec ou sans fichiers"><BusinessDonut data={charts.attachments} /></ChartCard>
+          <ChartCard title="Saisonnalité mensuelle"><BusinessBar data={monthlySeasonality} colorOffset={5} /></ChartCard>
+          <ChartCard title="Sujets les plus fréquents"><BusinessBar data={charts.subject.slice(0, 10)} horizontal colorOffset={6} /></ChartCard>
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-4">
+          <p className="section-kicker">Acteurs et historique</p>
+          <h2 className="text-xl font-bold text-slate-950">Qui intervient et comment l’activité évolue</h2>
+        </div>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <ChartCard title="Auteurs les plus actifs"><BusinessBar data={charts.author.slice(0, 10)} horizontal colorOffset={7} /></ChartCard>
+          <ChartCard title="Tickets par assigné"><BusinessBar data={charts.assignee.slice(0, 10)} horizontal colorOffset={8} /></ChartCard>
+          <ChartCard title="Technologies par année" subtitle="Volume de tickets par technologie et année">
+            <StackedYearBars data={technologyByYear} years={dashboard.years} />
+          </ChartCard>
+          <ChartCard title="Trackers par année" subtitle="Répartition annuelle par catégorie de suivi">
+            <StackedYearBars data={trackerByYear} years={dashboard.years} />
+          </ChartCard>
+        </div>
+      </section>
+
+      <details className="executive-card overflow-hidden">
+        <summary className="cursor-pointer px-5 py-4 font-bold text-slate-950 hover:bg-slate-50">
+          Consulter les tickets
+          <span className="ml-2 text-xs font-normal text-slate-500">{tickets.total.toLocaleString('fr-FR')} résultats</span>
+        </summary>
+        <div className="border-t border-slate-100 px-5 pb-5">
+          <IssuesTable
+            result={tickets}
+            searchValue={ticketSearchInput}
+            onSearchChange={setTicketSearchInput}
+            onPageChange={setPage}
+          />
+        </div>
+      </details>
+
       <AIChatPanel ticketSummary={aiContext} />
     </div>
   );

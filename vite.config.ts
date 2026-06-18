@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    allowedHosts: true,
     hmr: {
       overlay: false,
     },
@@ -16,6 +17,10 @@ export default defineConfig(({ mode }) => ({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
         rewrite: pathValue => pathValue.replace(/^\/api\/analytics/, ""),
+      },
+      "/functions": {
+        target: "http://127.0.0.1:54321",
+        changeOrigin: true,
       },
     },
   },

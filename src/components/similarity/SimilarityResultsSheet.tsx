@@ -141,14 +141,6 @@ export default function SimilarityResultsSheet({
                           {pct}%
                         </Badge>
 
-                        {/* Point */}
-                        <span className={cn(
-                          'text-xs font-bold shrink-0 w-14 text-right',
-                          pct >= 75 ? 'text-green-600' : pct >= 50 ? 'text-amber-600' : 'text-red-600',
-                        )}>
-                          {pct} pts
-                        </span>
-
                         {/* Status */}
                         <span className="text-xs text-muted-foreground shrink-0 w-20 truncate text-right">
                           {r.statusB || '—'}
@@ -167,15 +159,7 @@ export default function SimilarityResultsSheet({
                           <p>{r.statusB || '—'}</p>
                         </div>
                         <div>
-                          <p className="font-medium text-muted-foreground mb-0.5">Score texte</p>
-                          <p>{Math.round(r.textSimilarity * 100)}%</p>
-                        </div>
-                        <div>
-                          <p className="font-medium text-muted-foreground mb-0.5">Distance numérique</p>
-                          <p>{Math.round(r.numDistance * 100) / 100}</p>
-                        </div>
-                        <div>
-                          <p className="font-medium text-muted-foreground mb-0.5">Score combiné</p>
+                          <p className="font-medium text-muted-foreground mb-0.5">Score de similarité</p>
                           <p className="font-bold">{pct}%</p>
                         </div>
                         <div>

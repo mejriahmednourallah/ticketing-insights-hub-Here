@@ -1,0 +1,586 @@
+name: ticketing-insights-hub
+
+x-runtime-env: &runtime-env
+  env_file:
+    - path: ./deploy/secrets/runtime.env
+      required: false
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks:
+    - backend
+  labels:
+    com.ticketing.autoheal: "true"
+
+services:
+  db:
+    <<: [*service-defaults, *runtime-env]
+    image: supabase/postgres:15.14.1.135
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY:-3600}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/supabase/init/00-roles.sh:/docker-entrypoint-initdb.d/00-roles.sh:ro
+    mem_limit: 2g
+
+  migrations:
+    <<: *runtime-env
+    image: postgres:15.13-alpine3.22
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./supabase/migrations:/migrations:ro
+      - ./deploy/scripts/apply-migrations.sh:/usr/local/bin/apply-migrations:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/apply-migrations"]
+    restart: "no"
+
+  auth:
+    <<: [*service-defaults, *runtime-env]
+    image: supabase/gotrue:v2.190.0-rc.25
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: http://gateway:8080/auth/v1
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_DB_NAMESPACE: auth
+      GOTRUE_SITE_URL: http://gateway:8080
+      GOTRUE_URI_ALLOW_LIST: ""
+      GOTRUE_DISABLE_SIGNUP: "true"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY:-3600}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "false"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+
+  rest:
+    <<: [*service-defaults, *runtime-env]
+    image: postgrest/postgrest:v14.12
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_MAX_ROWS: 1000
+      PGRST_DB_EXTRA_SEARCH_PATH: public
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY:-3600}
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    mem_limit: 256m
+
+  meta:
+    <<: [*service-defaults, *runtime-env]
+    image: supabase/postgres-meta:v0.96.6
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+    mem_limit: 256m
+
+  functions:
+    <<: [*service-defaults, *runtime-env]
+    image: supabase/edge-runtime:v1.74.1
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      EDGE_RUNTIME_PORT: 9000
+      JWT_SECRET: ${JWT_SECRET}
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_PUBLIC_URL: http://gateway:8080
+      VERIFY_JWT: "false"
+      REDMINE_URL: ${REDMINE_URL}
+      REDMINE_API_KEY: ${REDMINE_API_KEY}
+      REDMINE_PAGE_SIZE: ${REDMINE_PAGE_SIZE:-500}
+      REDMINE_PROJECT_BATCH_SIZE: ${REDMINE_PROJECT_BATCH_SIZE:-20}
+      REDMINE_MAX_RETRIES: ${REDMINE_MAX_RETRIES:-5}
+      REDMINE_REQUEST_TIMEOUT_MS: ${REDMINE_REQUEST_TIMEOUT_MS:-20000}
+      REDMINE_FIELD_TEAM: ${REDMINE_FIELD_TEAM:-Equipe Affectee,team}
+      REDMINE_FIELD_TECHNOLOGY: ${REDMINE_FIELD_TECHNOLOGY:-CMS / Framework,technology,technology_used}
+      REDMINE_FIELD_NATURE: ${REDMINE_FIELD_NATURE:-Nature,nature}
+      REDMINE_FIELD_INTERVENTION_TYPE: ${REDMINE_FIELD_INTERVENTION_TYPE:-Type d'intervention,intervention_type}
+      REDMINE_FIELD_RESOLVED_DATE: ${REDMINE_FIELD_RESOLVED_DATE:-Date Resolved,resolved_date}
+      REDMINE_FIELD_SATISFACTION: ${REDMINE_FIELD_SATISFACTION:-Degre de satisfaction,csat_score,satisfaction}
+      REDMINE_FIELD_SOURCE: ${REDMINE_FIELD_SOURCE:-Source,source}
+      REDMINE_FIELD_CANAL: ${REDMINE_FIELD_CANAL:-Canal,channel,canal}
+      REDMINE_FIELD_SEGMENT_CLIENT: ${REDMINE_FIELD_SEGMENT_CLIENT:-Segment client,customer_segment,segment_client}
+      REDMINE_FIELD_REGION: ${REDMINE_FIELD_REGION:-Region,region}
+      REDMINE_FIELD_REOPENED: ${REDMINE_FIELD_REOPENED:-Reouvert,reopened}
+      REDMINE_FIELD_SLA_PLAN: ${REDMINE_FIELD_SLA_PLAN:-SLA plan,sla_plan}
+      LOVABLE_API_KEY: ${LOVABLE_API_KEY}
+    volumes:
+      - ./deploy/supabase/functions:/functions:ro
+      - deno_cache:/root/.cache/deno
+    command: ["start", "--main-service", "/functions/main"]
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 768m
+
+  kong:
+    <<: [*service-defaults, *runtime-env]
+    image: kong:3.9.2
+    depends_on:
+      auth:
+        condition: service_healthy
+      rest:
+        condition: service_healthy
+      functions:
+        condition: service_healthy
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: bundled
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+    volumes:
+      - ./deploy/supabase/kong.yml:/etc/kong/kong.yml:ro
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    mem_limit: 384m
+
+  studio:
+    <<: [*service-defaults, *runtime-env]
+    image: supabase/studio:2026.06.08-sha-8af2bb0
+    depends_on:
+      meta:
+        condition: service_healthy
+      kong:
+        condition: service_healthy
+    environment:
+      HOSTNAME: 0.0.0.0
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_META_CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+      DEFAULT_ORGANIZATION_NAME: Ticketing Insights
+      DEFAULT_PROJECT_NAME: Ticketing Insights Hub
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: http://gateway:8080
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      NEXT_PUBLIC_ENABLE_LOGS: "false"
+    ports:
+      - "127.0.0.1:3001:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/platform/profile').then(r=>{if(!r.ok)process.exit(1)})\""]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    mem_limit: 768m
+
+  web:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_SUPABASE_URL: http://gateway:8080
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${ANON_KEY}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+
+  warehouse-refresh:
+    <<: [*service-defaults, *runtime-env]
+    build:
+      context: .
+      dockerfile: analytics_service/Dockerfile.worker
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      WAREHOUSE_DIR: /warehouse
+      WAREHOUSE_REFRESH_SECONDS: ${WAREHOUSE_REFRESH_SECONDS:-300}
+      DBT_SUPABASE_HOST: db
+      DBT_SUPABASE_PORT: 5432
+      DBT_SUPABASE_USER: postgres
+      DBT_SUPABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DBT_SUPABASE_DBNAME: postgres
+      DUCKDB_EXTENSION_DIR: /tmp/duckdb_extensions
+    volumes:
+      - duckdb_warehouse:/warehouse
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /warehouse/warehouse-current.duckdb && test $$(find /warehouse/warehouse-current.duckdb -mmin -15 | wc -l) -eq 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
+    mem_limit: 1g
+
+  analytics-api:
+    <<: [*service-defaults, *runtime-env]
+    build:
+      context: .
+      dockerfile: analytics_service/Dockerfile
+    depends_on:
+      warehouse-refresh:
+        condition: service_healthy
+    environment:
+      DUCKDB_PATH: /warehouse/warehouse-current.duckdb
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_JWT_SECRET: ${JWT_SECRET}
+      ANALYTICS_AUTH_DISABLED: "false"
+      ANALYTICS_CORS_ORIGINS: "*"
+      ANALYTICS_METRICS_PORT: 9102
+      FORECAST_MODEL_SUMMARY_PATH: /runtime/model-analysis/forecast-model-summary.json
+    volumes:
+      - duckdb_warehouse:/warehouse:ro
+      - ./runtime/model-analysis:/runtime/model-analysis:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/v1/health'); raise SystemExit(0 if r.status == 200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+
+  scheduler:
+    <<: [*service-defaults, *runtime-env]
+    image: curlimages/curl:8.14.1
+    depends_on:
+      kong:
+        condition: service_healthy
+    environment:
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      INGEST_INTERVAL_SECONDS: ${INGEST_INTERVAL_SECONDS:-300}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          curl --fail --silent --show-error \
+            --request POST http://kong:8000/functions/v1/redmine-ingest \
+            --header "Authorization: Bearer $${SERVICE_ROLE_KEY}" \
+            --header "Content-Type: application/json" \
+            --data '{"mode":"batch"}' || true
+          sleep "$${INGEST_INTERVAL_SECONDS}"
+        done
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -q '[s]leep'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 64m
+
+  gateway:
+    <<: [*service-defaults, *runtime-env]
+    image: caddy:2.10.0-alpine
+    depends_on:
+      web:
+        condition: service_healthy
+      analytics-api:
+        condition: service_healthy
+      kong:
+        condition: service_healthy
+      studio:
+        condition: service_healthy
+      grafana:
+        condition: service_healthy
+    environment:
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+
+  cloudflared:
+    <<: *service-defaults
+    build:
+      context: ./deploy/cloudflared
+    depends_on:
+      gateway:
+        condition: service_healthy
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - 0.0.0.0:2000
+      - --loglevel
+      - info
+      - --logfile
+      - /var/log/cloudflared/tunnel.log
+      - --url
+      - http://gateway:8080
+    volumes:
+      - tunnel_logs:/var/log/cloudflared
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:2000/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 128m
+
+  tunnel-url-watcher:
+    <<: *service-defaults
+    image: alpine:3.22.0
+    depends_on:
+      cloudflared:
+        condition: service_started
+    volumes:
+      - tunnel_logs:/var/log/cloudflared:ro
+      - ./runtime:/runtime
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          url="$$(grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' /var/log/cloudflared/tunnel.log 2>/dev/null | tail -n1 || true)"
+          if [ -n "$$url" ]; then
+            printf '%s\n' "$$url" > /runtime/quick-tunnel-url.txt.tmp
+            mv /runtime/quick-tunnel-url.txt.tmp /runtime/quick-tunnel-url.txt
+          fi
+          sleep 5
+        done
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /runtime/quick-tunnel-url.txt"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 32m
+
+  autoheal:
+    build:
+      context: ./deploy/autoheal
+    restart: unless-stopped
+    networks:
+      - backend
+    environment:
+      AUTOHEAL_INTERVAL_SECONDS: 15
+      AUTOHEAL_FAILURE_THRESHOLD: 3
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+
+  backup:
+    <<: [*service-defaults, *runtime-env]
+    image: postgres:15.13-alpine3.22
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: postgres
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DAILY_RETENTION: ${BACKUP_DAILY_RETENTION:-14}
+      BACKUP_WEEKLY_RETENTION: ${BACKUP_WEEKLY_RETENTION:-8}
+    volumes:
+      - ./deploy/backups:/backups
+      - ./deploy/scripts/backup-loop.sh:/usr/local/bin/backup-loop:ro
+      - ./supabase/migrations:/config/migrations:ro
+      - ./docker-compose.production.yml:/config/docker-compose.production.yml:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/backup-loop"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /backups/.last-success && test $$(find /backups/.last-success -mmin -1500 | wc -l) -eq 1"]
+      interval: 60m
+      timeout: 5s
+      retries: 2
+      start_period: 10m
+    mem_limit: 256m
+
+  prometheus:
+    <<: *service-defaults
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD", "/bin/prometheus", "--version"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 384m
+
+  grafana:
+    <<: [*service-defaults, *runtime-env]
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/admin/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 384m
+
+  postgres-exporter:
+    <<: [*service-defaults, *runtime-env]
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 64m
+
+  cadvisor:
+    <<: *service-defaults
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    mem_limit: 256m
+
+  docker-exporter:
+    <<: *service-defaults
+    image: python:3.12-slim
+    command: ["python", "/app/docker_exporter.py"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DOCKER_EXPORTER_PORT: "9323"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/docker/docker_exporter.py:/app/docker_exporter.py:ro
+    expose:
+      - "9323"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:9323/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    mem_limit: 128m
+
+  node-exporter:
+    <<: *service-defaults
+    image: prom/node-exporter:v1.8.2
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 64m
+
+  blackbox-exporter:
+    <<: *service-defaults
+    image: prom/blackbox-exporter:v0.25.0
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    mem_limit: 64m
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  duckdb_warehouse:
+  deno_cache:
+  tunnel_logs:
+  caddy_data:
+  caddy_config:
+  prometheus_data:
+  grafana_data:

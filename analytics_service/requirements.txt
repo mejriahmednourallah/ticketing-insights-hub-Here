@@ -1,5 +1,8 @@
 duckdb==1.5.3
 fastapi==0.115.12
+numpy==2.2.6
+pandas==2.2.3
 PyJWT==2.10.1
 prometheus-client==0.22.1
+statsmodels==0.14.4
 uvicorn[standard]==0.34.2

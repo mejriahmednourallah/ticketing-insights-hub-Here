@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from analytics_service.metrics import WarehouseMetricsCollector
+from analytics_service.metrics import ForecastQualityCollector, WarehouseMetricsCollector
 
 
 def test_missing_warehouse_is_reported_not_ready() -> None:
@@ -45,3 +46,36 @@ def test_warehouse_values_are_cached(monkeypatch) -> None:
     now[0] = 161.0
     collector.values()
     assert calls["count"] == 2
+
+
+def test_forecast_quality_collector_reads_latest_summary(tmp_path: Path) -> None:
+    summary = tmp_path / "forecast-model-summary.json"
+    summary.write_text(
+        json.dumps(
+            {
+                "generatedAt": "2026-06-16T00:00:00+00:00",
+                "bestByScope": [
+                    {
+                        "target": "ticket_volume",
+                        "scope_type": "global",
+                        "scope_value": "",
+                        "model": "damped_holt",
+                        "selection_reason": "beats_seasonal_naive_by_5pct",
+                        "h1_mae": 4.2,
+                        "h1_wape_pct": 12.5,
+                        "weighted_mase": 0.8,
+                    }
+                ],
+                "scoreboard": [
+                    {"target": "ticket_volume", "model": "damped_holt", "scope_wins": 1}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    collector = ForecastQualityCollector(summary, clock=lambda: 1_781_654_400.0)
+    names = {metric.name for metric in collector.collect()}
+
+    assert "ticketing_forecast_model_report_ready" in names
+    assert "ticketing_forecast_model_selected" in names
+    assert "ticketing_forecast_model_selected_weighted_mase" in names

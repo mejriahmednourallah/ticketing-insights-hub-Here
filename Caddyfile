@@ -1,0 +1,76 @@
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	handle_path /api/analytics/* {
+		reverse_proxy {$ANALYTICS_UPSTREAM}
+	}
+
+	handle /functions/v1/* {
+		reverse_proxy {$SUPABASE_UPSTREAM}
+	}
+
+	handle /auth/v1/* {
+		reverse_proxy {$SUPABASE_UPSTREAM}
+	}
+
+	handle /rest/v1/* {
+		reverse_proxy {$SUPABASE_UPSTREAM}
+	}
+
+	handle /admin/grafana {
+		basic_auth {
+			{$CADDY_ADMIN_USER} {$CADDY_ADMIN_PASSWORD_HASH}
+		}
+		redir /admin/grafana/ 308
+	}
+	handle /admin/grafana/* {
+		basic_auth {
+			{$CADDY_ADMIN_USER} {$CADDY_ADMIN_PASSWORD_HASH}
+		}
+		reverse_proxy {$GRAFANA_UPSTREAM} {
+			header_up -Authorization
+		}
+	}
+
+	handle /admin/studio {
+		basic_auth {
+			{$CADDY_ADMIN_USER} {$CADDY_ADMIN_PASSWORD_HASH}
+		}
+		redir /admin/studio/ 308
+	}
+	handle_path /admin/studio/* {
+		basic_auth {
+			{$CADDY_ADMIN_USER} {$CADDY_ADMIN_PASSWORD_HASH}
+		}
+		reverse_proxy {$STUDIO_UPSTREAM}
+	}
+
+	@studioAssets path /_next/* /api/platform/* /api/profile* /api/projects* /project/* /organization/* /settings/* /account/*
+	handle @studioAssets {
+		basic_auth {
+			{$CADDY_ADMIN_USER} {$CADDY_ADMIN_PASSWORD_HASH}
+		}
+		reverse_proxy {$STUDIO_UPSTREAM}
+	}
+
+	handle {
+		reverse_proxy {$FRONTEND_UPSTREAM}
+	}
+}
