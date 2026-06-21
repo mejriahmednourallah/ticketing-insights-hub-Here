@@ -1,0 +1,73 @@
+name: ticketing-insights-hub-cloud-min
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+        VITE_ANALYTICS_API_URL: ${VITE_ANALYTICS_API_URL:-/api/analytics}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18081:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  analytics-api:
+    build:
+      context: .
+      dockerfile: analytics_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DUCKDB_PATH: /warehouse/warehouse-current.duckdb
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      ANALYTICS_AUTH_DISABLED: ${ANALYTICS_AUTH_DISABLED:-false}
+      ANALYTICS_CORS_ORIGINS: ${ANALYTICS_CORS_ORIGINS:-http://ticketing.medianet.space}
+      ANALYTICS_METRICS_DISABLED: ${ANALYTICS_METRICS_DISABLED:-true}
+    ports:
+      - "127.0.0.1:18082:8000"
+    volumes:
+      - duckdb_warehouse:/warehouse:ro
+    depends_on:
+      warehouse-refresh:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=5); raise SystemExit(0 if r.status == 200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  warehouse-refresh:
+    build:
+      context: .
+      dockerfile: analytics_service/Dockerfile.worker
+    restart: unless-stopped
+    environment:
+      WAREHOUSE_DIR: /warehouse
+      WAREHOUSE_REFRESH_SECONDS: ${WAREHOUSE_REFRESH_SECONDS:-300}
+      DBT_SUPABASE_HOST: ${DBT_SUPABASE_HOST}
+      DBT_SUPABASE_PORT: ${DBT_SUPABASE_PORT:-5432}
+      DBT_SUPABASE_USER: ${DBT_SUPABASE_USER:-postgres}
+      DBT_SUPABASE_PASSWORD: ${DBT_SUPABASE_PASSWORD}
+      DBT_SUPABASE_DBNAME: ${DBT_SUPABASE_DBNAME:-postgres}
+      DBT_SUPABASE_SSLMODE: ${DBT_SUPABASE_SSLMODE:-require}
+      DUCKDB_EXTENSION_DIR: /tmp/duckdb_extensions
+    volumes:
+      - duckdb_warehouse:/warehouse
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /warehouse/warehouse-current.duckdb"]
+      interval: 60s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
+
+volumes:
+  duckdb_warehouse:

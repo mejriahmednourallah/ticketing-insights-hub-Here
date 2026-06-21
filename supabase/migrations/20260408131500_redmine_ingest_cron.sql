@@ -9,9 +9,9 @@ set search_path = public
 as $$
 begin
   perform net.http_post(
-    url := 'http://kong:8000/functions/v1/redmine-ingest',
+    url := 'https://wxfssqmuubdnaxtqbiba.supabase.co/functions/v1/redmine-ingest',
     headers := '{"Content-Type":"application/json"}'::jsonb,
-    body := '{"mode":"full"}'::jsonb,
+    body := '{"mode":"batch"}'::jsonb,
     timeout_milliseconds := 120000
   );
 end;

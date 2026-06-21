@@ -22,7 +22,11 @@ def postgres_connection() -> str:
     database = os.getenv("DBT_SUPABASE_DBNAME", "postgres")
     user = os.getenv("DBT_SUPABASE_USER", "postgres")
     password = os.getenv("DBT_SUPABASE_PASSWORD", "postgres")
-    return f"host={host} port={port} dbname={database} user={user} password={password}"
+    sslmode = os.getenv("DBT_SUPABASE_SSLMODE")
+    connection = f"host={host} port={port} dbname={database} user={user} password={password}"
+    if sslmode:
+        connection = f"{connection} sslmode={sslmode}"
+    return connection
 
 
 def build_once() -> tuple[int, int]:

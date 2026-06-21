@@ -12,7 +12,9 @@ interface Props {
   ticketSummary: string;
 }
 
-const CHAT_URL = '/functions/v1/chat';
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/$/, '');
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+const CHAT_URL = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/chat` : '/functions/v1/chat';
 
 const EXAMPLE_QUESTIONS = [
   "Combien de tickets urgents sont ouverts ?",
@@ -47,7 +49,7 @@ export default function AIChatPanel({ ticketSummary }: Props) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          ...(SUPABASE_KEY ? { Authorization: `Bearer ${SUPABASE_KEY}` } : {}),
         },
         body: JSON.stringify({
           messages: [...messages, userMsg].map(m => ({ role: m.role, content: m.content })),
