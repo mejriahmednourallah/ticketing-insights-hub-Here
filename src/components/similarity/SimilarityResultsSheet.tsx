@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { SimilarityResult, SIMILARITY_TOP_N, countSimilarAboveThreshold } from '@/lib/similarity';
+import { SimilarityResult, SIMILARITY_TOP_N } from '@/lib/similarity';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -9,7 +9,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
-import { X, ChevronRight } from 'lucide-react';
+import { X, ChevronRight, ExternalLink } from 'lucide-react';
 
 interface Props {
   results: SimilarityResult[];
@@ -17,6 +17,15 @@ interface Props {
   referenceSubject: string;
   isOpen: boolean;
   onClose: () => void;
+}
+
+const REDMINE_BASE_URL = (
+  import.meta.env.VITE_REDMINE_BASE_URL
+  || 'https://maintenance.medianet.tn'
+).replace(/\/$/, '');
+
+function redmineIssueUrl(ticketId: string | number) {
+  return `${REDMINE_BASE_URL}/issues/${encodeURIComponent(String(ticketId))}`;
 }
 
 function scoreBadge(pct: number) {
@@ -38,7 +47,6 @@ export default function SimilarityResultsSheet({
   const avgScore = visible.length > 0
     ? visible.reduce((sum, r) => sum + r.combinedScore, 0) / visible.length
     : 0;
-  const similarCount = countSimilarAboveThreshold(results, SIMILARITY_TOP_N, 0.75);
 
   return (
     <>
@@ -61,12 +69,14 @@ export default function SimilarityResultsSheet({
         <div className="flex items-center justify-between px-5 py-4 border-b bg-muted/30 shrink-0">
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">Ticket de référence</p>
-            <p className="text-sm font-bold text-primary truncate">
+            <a
+              href={redmineIssueUrl(referenceId)}
+              target="_blank"
+              rel="noreferrer"
+              className="block truncate text-sm font-bold text-primary underline-offset-4 hover:underline"
+            >
               #{referenceId} — {referenceSubject}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Top {visible.length} sur {results.length} similaire{results.length > 1 ? 's' : ''}
-            </p>
+            </a>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} className="shrink-0">
             <X className="h-5 w-5" />
@@ -74,12 +84,20 @@ export default function SimilarityResultsSheet({
         </div>
 
         {/* KPI cards */}
-        <div className="grid grid-cols-2 gap-2 px-4 py-3 border-b shrink-0">
+        <div className="grid grid-cols-2 gap-3 px-4 py-3 border-b shrink-0">
           <div className="rounded-lg border bg-card p-3">
             <p className="text-[10px] text-muted-foreground">Plus similaire</p>
             {top ? (
               <>
-                <p className="text-lg font-bold text-primary">#{top.idB}</p>
+                <a
+                  href={redmineIssueUrl(top.idB)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-lg font-bold text-primary underline-offset-4 hover:underline"
+                >
+                  #{top.idB}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
                 <p className="text-xs text-muted-foreground truncate">{top.subjectB}</p>
                 <p className="text-xs font-semibold mt-1">{Math.round(top.combinedScore * 100)}%</p>
               </>
@@ -90,18 +108,6 @@ export default function SimilarityResultsSheet({
           <div className="rounded-lg border bg-card p-3">
             <p className="text-[10px] text-muted-foreground">Score moyen</p>
             <p className="text-lg font-bold">{Math.round(avgScore * 100)}%</p>
-          </div>
-          <div className="rounded-lg border bg-card p-3">
-            <p className="text-[10px] text-muted-foreground">Tickets similaires</p>
-            <p className="text-lg font-bold text-primary">
-              {similarCount} / {Math.min(results.length, SIMILARITY_TOP_N)}
-            </p>
-            <p className="text-[10px] text-muted-foreground">≥ 75%</p>
-          </div>
-          <div className="rounded-lg border bg-card p-3">
-            <p className="text-[10px] text-muted-foreground">Total</p>
-            <p className="text-lg font-bold">{results.length}</p>
-            <p className="text-[10px] text-muted-foreground">résultats</p>
           </div>
         </div>
 
@@ -167,6 +173,15 @@ export default function SimilarityResultsSheet({
                           <p>#{r.rank}</p>
                         </div>
                       </div>
+                      <a
+                        href={redmineIssueUrl(r.idB)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-primary/20 px-3 py-2 text-xs font-semibold text-primary transition hover:bg-primary/5"
+                      >
+                        Ouvrir le ticket dans Redmine
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
 
                       {/* Differences */}
                       {r.differences.length > 0 && (

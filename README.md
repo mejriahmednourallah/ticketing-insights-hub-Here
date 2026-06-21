@@ -59,7 +59,7 @@ See **DEPLOYMENT_GUIDE.md** → "Option 3: Server Deployment"
 
 The `redmine-ingest` edge function reads Redmine data and upserts it into Supabase. A cron job named `redmine_ingest_every_5m` triggers it every 5 minutes.
 
-If you deploy the chat edge function, set its secret in Supabase with `supabase secrets set LOVABLE_API_KEY=...` so it can reach the AI gateway.
+If you deploy the chat edge function, configure at least one AI secret. `LOVABLE_API_KEY` is used first by default; `GROQ_API_KEY` is the fallback. The default Groq fallback model is `llama-3.3-70b-versatile`, configurable through `GROQ_MODEL`.
 
 ## Forecast model analysis
 

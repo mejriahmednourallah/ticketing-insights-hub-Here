@@ -9,6 +9,7 @@ const corsHeaders = {
 const requestLog = new Map<string, number[]>();
 const MAX_REQUESTS_PER_MINUTE = 10;
 const MAX_BODY_BYTES = 262_144;
+const DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
 
 function rateLimited(req: Request): boolean {
   const address = req.headers.get("cf-connecting-ip")
@@ -20,6 +21,103 @@ function rateLimited(req: Request): boolean {
   recent.push(now);
   requestLog.set(address, recent);
   return false;
+}
+
+type ChatMessage = { role: string; content: string };
+
+function normalizedMessages(systemPrompt: string, messages: ChatMessage[]) {
+  return [
+    { role: "system", content: systemPrompt },
+    ...messages
+      .filter((message) => typeof message?.content === "string" && message.content.trim())
+      .map((message) => ({
+        role: message.role === "assistant" ? "assistant" : "user",
+        content: message.content,
+      })),
+  ];
+}
+
+async function callLovableGateway(systemPrompt: string, messages: ChatMessage[]) {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
+
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: normalizedMessages(systemPrompt, messages),
+      stream: false,
+      temperature: 0.4,
+      max_tokens: 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Lovable gateway failed with ${response.status}: ${detail.slice(0, 500)}`);
+  }
+
+  const payload = await response.json();
+  const message = payload?.choices?.[0]?.message?.content;
+  if (!message) throw new Error("Lovable gateway returned an empty response");
+  return String(message);
+}
+
+async function callGroq(systemPrompt: string, messages: ChatMessage[]) {
+  const apiKey = Deno.env.get("GROQ_API_KEY");
+  if (!apiKey) throw new Error("GROQ_API_KEY is not configured");
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: Deno.env.get("GROQ_MODEL") || DEFAULT_GROQ_MODEL,
+      messages: normalizedMessages(systemPrompt, messages),
+      stream: false,
+      temperature: 0.35,
+      max_tokens: 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Groq failed with ${response.status}: ${detail.slice(0, 500)}`);
+  }
+
+  const payload = await response.json();
+  const message = payload?.choices?.[0]?.message?.content;
+  if (!message) throw new Error("Groq returned an empty response");
+  return String(message);
+}
+
+async function generateChatResponse(systemPrompt: string, messages: ChatMessage[]) {
+  const providers = Deno.env.get("AI_PROVIDER_ORDER")?.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean)
+    || ["lovable", "groq"];
+  const errors: string[] = [];
+
+  for (const provider of providers) {
+    try {
+      if (provider === "lovable" || provider === "gemini") {
+        return await callLovableGateway(systemPrompt, messages);
+      }
+      if (provider === "groq") {
+        return await callGroq(systemPrompt, messages);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${provider}: ${message}`);
+      console.error("AI provider failed:", provider, message);
+    }
+  }
+
+  throw new Error(`Aucun fournisseur IA disponible. ${errors.join(" | ")}`);
 }
 
 serve(async (req) => {
@@ -44,11 +142,6 @@ serve(async (req) => {
 
     const { messages, ticketSummary } = await req.json();
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
-
     const systemPrompt = `Tu es un assistant IA expert en analyse de tickets de support technique. Tu réponds en français.
 
 Tu as accès aux données suivantes du tableau de bord de ticketing :
@@ -63,49 +156,7 @@ Règles :
 - Si tu ne peux pas répondre avec les données fournies, dis-le clairement.
 - N'invente jamais de données.`;
 
-    const response = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...messages,
-          ],
-          stream: false,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Limite de requêtes atteinte. Réessayez dans un moment." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Crédits IA épuisés. Ajoutez des crédits dans Settings > Workspace > Usage." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      return new Response(
-        JSON.stringify({ error: "Erreur du service IA" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const payload = await response.json();
-    const message = payload?.choices?.[0]?.message?.content;
-    if (!message) throw new Error("Le service IA a retourné une réponse vide");
+    const message = await generateChatResponse(systemPrompt, messages || []);
 
     return new Response(JSON.stringify({ message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

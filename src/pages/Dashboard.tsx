@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  LabelList,
   Line,
   LineChart,
   Pie,
@@ -95,6 +96,12 @@ function BusinessBar({ data, horizontal = false, colorOffset = 0 }: {
           : <><XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} angle={-20} textAnchor="end" height={60} /><YAxis tick={{ fontSize: 11, fill: '#64748b' }} /></>}
         <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0' }} />
         <Bar dataKey="value" name="Tickets" radius={horizontal ? [0, 8, 8, 0] : [8, 8, 0, 0]}>
+          <LabelList
+            dataKey="value"
+            position={horizontal ? 'right' : 'top'}
+            className="fill-slate-500 text-[10px]"
+            formatter={(value: number) => value.toLocaleString('fr-FR')}
+          />
           {normalized.map((_, index) => (
             <Cell key={`bar-${index}`} fill={CHART_COLORS[(index + colorOffset) % CHART_COLORS.length]} />
           ))}
@@ -138,7 +145,7 @@ function StackedYearBars({ data, years }: {
         <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0' }} />
         <Legend wrapperStyle={{ fontSize: 12 }} />
         {years.map((year, index) => (
-          <Bar key={year} dataKey={String(year)} stackId="year" fill={CHART_COLORS[index % CHART_COLORS.length]} name={String(year)} />
+          <Bar key={year} dataKey={String(year)} fill={CHART_COLORS[index % CHART_COLORS.length]} name={String(year)} />
         ))}
       </BarChart>
     </ResponsiveContainer>
@@ -235,17 +242,15 @@ export default function Dashboard() {
     [dashboard],
   );
 
-  const delayTrend = useMemo(() => {
-    if (!dashboard) return [];
-    const years = new Map<number, { year: string; resolved?: number | null; closed?: number | null }>();
-    dashboard.charts.avgResolvedByYear.forEach(point => {
-      years.set(point.year, { ...(years.get(point.year) ?? { year: String(point.year) }), resolved: point.value });
-    });
-    dashboard.charts.avgClosedByYear.forEach(point => {
-      years.set(point.year, { ...(years.get(point.year) ?? { year: String(point.year) }), closed: point.value });
-    });
-    return [...years.values()];
-  }, [dashboard]);
+  const resolvedDelayByYear = useMemo(
+    () => (dashboard?.charts.avgResolvedByYear ?? []).map(point => ({ name: String(point.year), value: point.value })),
+    [dashboard],
+  );
+
+  const closedDelayByYear = useMemo(
+    () => (dashboard?.charts.avgClosedByYear ?? []).map(point => ({ name: String(point.year), value: point.value })),
+    [dashboard],
+  );
 
   if (loading && !dashboard) {
     return <div className="flex min-h-[60vh] items-center justify-center font-semibold text-slate-600">Chargement de vos indicateurs…</div>;
@@ -272,8 +277,9 @@ export default function Dashboard() {
 
       {error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
 
+      <KPICards kpis={dashboard.kpis} variant="global" />
       <DashboardFilters options={options} filters={filters} onChange={updateFilters} />
-      <KPICards kpis={dashboard.kpis} />
+      <KPICards kpis={dashboard.kpis} variant="scoped" />
 
       <section>
         <div className="mb-4">
@@ -281,8 +287,8 @@ export default function Dashboard() {
           <h2 className="text-xl font-bold text-slate-950">Comprendre l’activité en un coup d’œil</h2>
         </div>
         <div className="grid gap-5 lg:grid-cols-2">
-          <ChartCard title="Répartition par statut"><BusinessBar data={charts.status.slice(0, 10)} horizontal /></ChartCard>
-          <ChartCard title="Répartition par priorité"><BusinessDonut data={charts.priority} /></ChartCard>
+          <ChartCard title="Nombre des tickets total par priorité"><BusinessBar data={charts.priority} /></ChartCard>
+          <ChartCard title="Nombre des tickets total par statut"><BusinessBar data={charts.status.slice(0, 10)} horizontal colorOffset={7} /></ChartCard>
           <ChartCard title="Évolution mensuelle des tickets">
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={monthlyTrend}>
@@ -294,20 +300,14 @@ export default function Dashboard() {
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>
-          <ChartCard title="Activité par équipe"><BusinessBar data={charts.team.slice(0, 10)} horizontal colorOffset={2} /></ChartCard>
-          <ChartCard title="Projets les plus sollicités"><BusinessBar data={charts.project.slice(0, 10)} horizontal colorOffset={4} /></ChartCard>
-          <ChartCard title="Évolution des délais moyens" subtitle="En jours, selon l’année de création">
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={delayTrend}>
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
-                <XAxis dataKey="year" tick={{ fontSize: 11, fill: '#64748b' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} unit=" j" />
-                <Tooltip contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0' }} />
-                <Legend />
-                <Line dataKey="resolved" name="Résolution" type="monotone" stroke="#0d9488" strokeWidth={3} />
-                <Line dataKey="closed" name="Clôture" type="monotone" stroke="#2563eb" strokeWidth={3} />
-              </LineChart>
-            </ResponsiveContainer>
+          <ChartCard title="Nombre des tickets par équipe"><BusinessBar data={charts.team.slice(0, 10)} horizontal colorOffset={2} /></ChartCard>
+          <ChartCard title="Nombre des tickets total par projet"><BusinessBar data={charts.project.slice(0, 10)} horizontal colorOffset={4} /></ChartCard>
+          <ChartCard title="Sujet assigné au projet"><BusinessBar data={charts.subject.slice(0, 10)} horizontal colorOffset={6} /></ChartCard>
+          <ChartCard title="Évolution du délai moyen résolu N vs N-1" subtitle="En jours, selon l’année de création">
+            <BusinessBar data={resolvedDelayByYear} colorOffset={1} />
+          </ChartCard>
+          <ChartCard title="Évolution du délai moyen fermé N vs N-1" subtitle="En jours, selon l’année de création">
+            <BusinessBar data={closedDelayByYear} colorOffset={8} />
           </ChartCard>
         </div>
       </section>
@@ -318,12 +318,11 @@ export default function Dashboard() {
           <h2 className="text-xl font-bold text-slate-950">Où se concentre la demande</h2>
         </div>
         <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
-          <ChartCard title="Origine des demandes"><BusinessBar data={charts.source.slice(0, 10)} colorOffset={1} /></ChartCard>
-          <ChartCard title="Types de tickets"><BusinessBar data={charts.type.slice(0, 10)} colorOffset={3} /></ChartCard>
-          <ChartCard title="Satisfaction déclarée"><BusinessDonut data={charts.satisfaction.slice(0, 8)} /></ChartCard>
-          <ChartCard title="Avec ou sans fichiers"><BusinessDonut data={charts.attachments} /></ChartCard>
-          <ChartCard title="Saisonnalité mensuelle"><BusinessBar data={monthlySeasonality} colorOffset={5} /></ChartCard>
-          <ChartCard title="Sujets les plus fréquents"><BusinessBar data={charts.subject.slice(0, 10)} horizontal colorOffset={6} /></ChartCard>
+          <ChartCard title="Nombre des tickets total par source"><BusinessBar data={charts.source.slice(0, 10)} horizontal colorOffset={1} /></ChartCard>
+          <ChartCard title="Nombre des tickets total par type"><BusinessDonut data={charts.type.slice(0, 10)} /></ChartCard>
+          <ChartCard title="Nombre des tickets total par degré de satisfaction"><BusinessBar data={charts.satisfaction.slice(0, 8)} colorOffset={3} /></ChartCard>
+          <ChartCard title="Nombre des tickets par fichiers"><BusinessBar data={charts.attachments} colorOffset={4} /></ChartCard>
+          <ChartCard title="Nombre total des tickets par mois"><BusinessBar data={monthlySeasonality} colorOffset={5} /></ChartCard>
         </div>
       </section>
 
@@ -333,12 +332,12 @@ export default function Dashboard() {
           <h2 className="text-xl font-bold text-slate-950">Qui intervient et comment l’activité évolue</h2>
         </div>
         <div className="grid gap-5 lg:grid-cols-2">
-          <ChartCard title="Auteurs les plus actifs"><BusinessBar data={charts.author.slice(0, 10)} horizontal colorOffset={7} /></ChartCard>
-          <ChartCard title="Tickets par assigné"><BusinessBar data={charts.assignee.slice(0, 10)} horizontal colorOffset={8} /></ChartCard>
-          <ChartCard title="Technologies par année" subtitle="Volume de tickets par technologie et année">
+          <ChartCard title="Nombre des tickets par auteur"><BusinessBar data={charts.author.slice(0, 15)} colorOffset={7} /></ChartCard>
+          <ChartCard title="Nombre des tickets par assigné à"><BusinessBar data={charts.assignee.slice(0, 15)} colorOffset={8} /></ChartCard>
+          <ChartCard title="Nombre des tickets total par CMS / Framework" subtitle="Année 2023, 2024, 2025">
             <StackedYearBars data={technologyByYear} years={dashboard.years} />
           </ChartCard>
-          <ChartCard title="Trackers par année" subtitle="Répartition annuelle par catégorie de suivi">
+          <ChartCard title="Nombre des tickets total par tracker" subtitle="Répartition annuelle par catégorie de suivi">
             <StackedYearBars data={trackerByYear} years={dashboard.years} />
           </ChartCard>
         </div>

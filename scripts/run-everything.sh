@@ -443,9 +443,9 @@ start_analytics() {
   log "Starting uvicorn on port 8000..."
   DUCKDB_PATH="$DUCKDB_PATH" \
   ANALYTICS_AUTH_DISABLED=true \
-  nohup "${VENV_DIR}/bin/uvicorn" analytics_service.app:app \
+  setsid "${VENV_DIR}/bin/uvicorn" analytics_service.app:app \
     --host 0.0.0.0 --port 8000 \
-    > /tmp/analytics-api.log 2>&1 &
+    </dev/null > /tmp/analytics-api.log 2>&1 &
   local pid=$!
   echo "$pid" > /tmp/analytics-api.pid
 
@@ -480,9 +480,9 @@ start_frontend() {
   # The frontend defaults to relative '/api/analytics' which is proxied by Vite
   # and forwarded through the tunnel correctly. Direct http://127.0.0.1:8000
   # causes CORS/mixed-content errors on HTTPS pages.
-  VITE_SUPABASE_PUBLISHABLE_KEY="${ANON_KEY}" \
-  nohup npx vite --host 0.0.0.0 --port 8081 \
-    > /tmp/frontend.log 2>&1 &
+  setsid env VITE_SUPABASE_PUBLISHABLE_KEY="${ANON_KEY}" \
+    npx vite --host 0.0.0.0 --port 8081 \
+    </dev/null > /tmp/frontend.log 2>&1 &
   local pid=$!
   echo "$pid" > /tmp/frontend.pid
 
@@ -577,8 +577,8 @@ start_tunnel() {
   fi
 
   log "Starting https://${DOMAIN} → localhost:8080"
-  cloudflared tunnel run --url http://localhost:8080 "$TUNNEL_NAME" \
-    > /tmp/tunnel.log 2>&1 &
+  setsid cloudflared tunnel run --url http://localhost:8080 "$TUNNEL_NAME" \
+    </dev/null > /tmp/tunnel.log 2>&1 &
   local pid=$!
   echo "$pid" > /tmp/tunnel.pid
 

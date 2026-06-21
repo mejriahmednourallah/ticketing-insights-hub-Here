@@ -20,7 +20,8 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   "${ROOT_DIR}/deploy/scripts/init-secrets.sh"
 fi
 if grep -q 'CHANGE_ME_ROTATE_THE_EXPOSED_KEY' "${ENV_FILE}"; then
-  echo "Rotate and set REDMINE_API_KEY and LOVABLE_API_KEY in ${ENV_FILE} first." >&2
+  echo "Rotate and set REDMINE_API_KEY plus at least one AI key in ${ENV_FILE} first." >&2
+  echo "Supported AI keys: LOVABLE_API_KEY, GROQ_API_KEY." >&2
   exit 1
 fi
 

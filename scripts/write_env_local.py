@@ -28,8 +28,11 @@ required = {
     'REDMINE_URL': vars_dict.get('REDMINE_URL'),
     'REDMINE_API_KEY': vars_dict.get('REDMINE_API_KEY'),
     'LOVABLE_API_KEY': vars_dict.get('LOVABLE_API_KEY'),
+    'GROQ_API_KEY': vars_dict.get('GROQ_API_KEY'),
 }
-missing = [k for k, v in required.items() if not v]
+missing = [k for k, v in required.items() if not v and k != 'LOVABLE_API_KEY' and k != 'GROQ_API_KEY']
+if not required['LOVABLE_API_KEY'] and not required['GROQ_API_KEY']:
+    missing.append('LOVABLE_API_KEY or GROQ_API_KEY')
 if missing:
     print(f'ERROR: Missing required env vars in {secrets_file}: {", ".join(missing)}', file=sys.stderr)
     sys.exit(1)
@@ -40,7 +43,10 @@ output = {
     'REDMINE_API_KEY': required['REDMINE_API_KEY'],
     'REDMINE_PAGE_SIZE': vars_dict.get('REDMINE_PAGE_SIZE', '500'),
     'REDMINE_PROJECT_BATCH_SIZE': vars_dict.get('REDMINE_PROJECT_BATCH_SIZE', '20'),
-    'LOVABLE_API_KEY': required['LOVABLE_API_KEY'],
+    'LOVABLE_API_KEY': required['LOVABLE_API_KEY'] or '',
+    'GROQ_API_KEY': required['GROQ_API_KEY'] or '',
+    'GROQ_MODEL': vars_dict.get('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+    'AI_PROVIDER_ORDER': vars_dict.get('AI_PROVIDER_ORDER', 'lovable,groq'),
     'INGEST_SUPABASE_URL': 'http://127.0.0.1:54321',
     'INGEST_SUPABASE_SERVICE_ROLE_KEY': vars_dict.get('SERVICE_ROLE_KEY', ''),
     'REDMINE_FIELD_TEAM': vars_dict.get('REDMINE_FIELD_TEAM', 'Equipe Affectee,team'),

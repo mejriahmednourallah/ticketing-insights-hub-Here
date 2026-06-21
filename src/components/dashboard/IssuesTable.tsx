@@ -3,6 +3,15 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+const REDMINE_BASE_URL = (
+  import.meta.env.VITE_REDMINE_BASE_URL
+  || 'https://maintenance.medianet.tn'
+).replace(/\/$/, '');
+
+function redmineIssueUrl(ticketId: number) {
+  return `${REDMINE_BASE_URL}/issues/${encodeURIComponent(String(ticketId))}`;
+}
+
 export default function IssuesTable({ result, searchValue, onSearchChange, onPageChange }: {
   result: TicketSearchResponse;
   searchValue: string;
@@ -36,9 +45,28 @@ export default function IssuesTable({ result, searchValue, onSearchChange, onPag
           <TableBody>
             {result.items.map(ticket => (
               <TableRow key={ticket.id}>
-                <TableCell className="font-mono text-xs">{ticket.id}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  <a
+                    href={redmineIssueUrl(ticket.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold text-teal-700 underline-offset-4 hover:text-teal-900 hover:underline"
+                    title={`Ouvrir le ticket #${ticket.id} dans Redmine`}
+                  >
+                    #{ticket.id}
+                  </a>
+                </TableCell>
                 <TableCell className="text-xs">{ticket.project}</TableCell>
-                <TableCell className="text-xs max-w-[250px] truncate" title={ticket.subject}>{ticket.subject}</TableCell>
+                <TableCell className="text-xs max-w-[250px] truncate" title={ticket.subject}>
+                  <a
+                    href={redmineIssueUrl(ticket.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-slate-700 underline-offset-4 hover:text-teal-800 hover:underline"
+                  >
+                    {ticket.subject}
+                  </a>
+                </TableCell>
                 <TableCell className="text-xs">{ticket.type || 'Non renseigné'}</TableCell>
                 <TableCell className="text-xs">{ticket.tracker}</TableCell>
                 <TableCell className="text-xs">{ticket.source || 'Non renseigné'}</TableCell>
