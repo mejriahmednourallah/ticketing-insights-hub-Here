@@ -20,6 +20,7 @@ BACKTEST_MONTHS = 12
 BACKTEST_HORIZONS = (1, 3, 6)
 HORIZON_WEIGHTS = {1: 0.5, 3: 0.3, 6: 0.2}
 PROMOTION_MASE_IMPROVEMENT = 0.05
+MIN_FORECAST_DATE = datetime(2000, 1, 1)
 
 ScopeType = Literal["global", "project", "team"]
 ForecastTarget = Literal["resolution_delay", "ticket_volume"]
@@ -136,13 +137,17 @@ def load_monthly_points(
           median(date_diff('second', created_date, resolved_date) / 86400.0) as median_days,
           count(*)::integer as resolved_tickets
         from analytics.fct_tickets
-        where resolved_date is not null
+        where created_date is not null
+          and resolved_date is not null
+          and created_date >= ?
+          and resolved_date >= ?
+          and resolved_date >= created_date
           and resolved_date < ?
           {clause}
         group by 1
         order by 1
         """,
-        [current_month, *params],
+        [MIN_FORECAST_DATE, MIN_FORECAST_DATE, current_month, *params],
     ).fetchall()
     history = [
         MonthlyPoint(_month_start(period), max(0.0, float(median_days)), int(count))
@@ -155,11 +160,18 @@ def load_monthly_points(
           median(date_diff('second', created_date, resolved_date) / 86400.0) as median_days,
           count(*)::integer as resolved_tickets
         from analytics.fct_tickets
-        where resolved_date >= ?
+        where created_date is not null
+          and resolved_date is not null
+          and created_date >= ?
+          and resolved_date >= ?
+          and resolved_date >= created_date
+          and resolved_date >= ?
           and resolved_date < ?
           {clause}
         """,
         [
+            MIN_FORECAST_DATE,
+            MIN_FORECAST_DATE,
             current_month,
             _next_month(current_month),
             *params,
@@ -190,12 +202,13 @@ def load_ticket_volume_points(
           count(*)::integer as ticket_count
         from analytics.fct_tickets
         where created_date is not null
+          and created_date >= ?
           and created_date < ?
           {clause}
         group by 1
         order by 1
         """,
-        [current_month, *params],
+        [MIN_FORECAST_DATE, current_month, *params],
     ).fetchall()
     history = [
         TicketVolumePoint(_month_start(period), max(0, int(ticket_count)))
@@ -206,11 +219,14 @@ def load_ticket_volume_points(
         f"""
         select count(*)::integer as ticket_count
         from analytics.fct_tickets
-        where created_date >= ?
+        where created_date is not null
+          and created_date >= ?
+          and created_date >= ?
           and created_date < ?
           {clause}
         """,
         [
+            MIN_FORECAST_DATE,
             current_month,
             _next_month(current_month),
             *params,
@@ -236,7 +252,11 @@ def eligible_scopes(conn: duckdb.DuckDBPyConnection, today: date | None = None) 
               count(distinct case when resolved_date >= ? then date_trunc('month', resolved_date) end)::integer as recent_months,
               sum(case when resolved_date >= ? then 1 else 0 end)::integer as recent_resolved_tickets
             from analytics.fct_tickets
-            where resolved_date is not null
+            where created_date is not null
+              and resolved_date is not null
+              and created_date >= ?
+              and resolved_date >= ?
+              and resolved_date >= created_date
               and resolved_date < ?
             group by 1
             having history_months >= ?
@@ -248,6 +268,8 @@ def eligible_scopes(conn: duckdb.DuckDBPyConnection, today: date | None = None) 
             [
                 recent_start,
                 recent_start,
+                MIN_FORECAST_DATE,
+                MIN_FORECAST_DATE,
                 current_month,
                 MIN_HISTORY_MONTHS,
                 MIN_RESOLVED_TICKETS,
@@ -294,6 +316,7 @@ def eligible_ticket_volume_scopes(conn: duckdb.DuckDBPyConnection, today: date |
               sum(case when created_date >= ? then 1 else 0 end)::integer as recent_tickets
             from analytics.fct_tickets
             where created_date is not null
+              and created_date >= ?
               and created_date < ?
             group by 1
             having history_months >= ?
@@ -305,6 +328,7 @@ def eligible_ticket_volume_scopes(conn: duckdb.DuckDBPyConnection, today: date |
             [
                 recent_start,
                 recent_start,
+                MIN_FORECAST_DATE,
                 current_month,
                 MIN_HISTORY_MONTHS,
                 MIN_RESOLVED_TICKETS,

@@ -67,6 +67,24 @@ def test_monthly_points_exclude_incomplete_current_month(tmp_path: Path) -> None
     assert current.resolved_tickets == 1
 
 
+def test_monthly_points_ignore_out_of_bounds_dates(tmp_path: Path) -> None:
+    warehouse = tmp_path / "warehouse.duckdb"
+    create_warehouse(warehouse)
+    with duckdb.connect(str(warehouse)) as conn:
+        conn.execute(
+            "insert into analytics.fct_tickets values (?, ?, ?, ?, ?)",
+            [9998, "Projet A", "RUN", datetime(23, 8, 1), datetime(23, 9, 1)],
+        )
+        history, _ = forecasting.load_monthly_points(
+            conn,
+            "global",
+            None,
+            today=date(2026, 6, 15),
+        )
+
+    assert history[0].period.year >= 2000
+
+
 def test_ticket_volume_points_exclude_incomplete_current_month(tmp_path: Path) -> None:
     warehouse = tmp_path / "warehouse.duckdb"
     create_warehouse(warehouse)
@@ -86,6 +104,24 @@ def test_ticket_volume_points_exclude_incomplete_current_month(tmp_path: Path) -
     assert current is not None
     assert current.period.date().isoformat() == "2026-06-01"
     assert current.ticket_count == 1
+
+
+def test_ticket_volume_points_ignore_out_of_bounds_dates(tmp_path: Path) -> None:
+    warehouse = tmp_path / "warehouse.duckdb"
+    create_warehouse(warehouse)
+    with duckdb.connect(str(warehouse)) as conn:
+        conn.execute(
+            "insert into analytics.fct_tickets values (?, ?, ?, ?, ?)",
+            [9998, "Projet A", "RUN", datetime(23, 8, 1), datetime(23, 9, 1)],
+        )
+        history, _ = forecasting.load_ticket_volume_points(
+            conn,
+            "global",
+            None,
+            today=date(2026, 6, 15),
+        )
+
+    assert history[0].period.year >= 2000
 
 
 def test_options_only_include_eligible_scopes(tmp_path: Path) -> None:
