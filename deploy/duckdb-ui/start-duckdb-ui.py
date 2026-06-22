@@ -31,7 +31,8 @@ socat = subprocess.Popen(
 
 con = duckdb.connect(str(catalog_path))
 con.execute(f"SET ui_local_port = {internal_port}")
-con.execute("INSTALL ui")
+con.execute("UPDATE EXTENSIONS")
+con.execute("FORCE INSTALL ui")
 con.execute("LOAD ui")
 con.execute(f"ATTACH {sql_string(str(warehouse_path))} AS wh (READ_ONLY)")
 
