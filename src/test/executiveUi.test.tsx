@@ -202,6 +202,7 @@ describe('executive interface', () => {
             textSimilarity: 0.7,
             numDistance: 2,
             combinedScore: 0.82,
+            similarities: ['Projet: A'],
             differences: ['Projet: A != B'],
             rank: 1,
           },
@@ -213,5 +214,8 @@ describe('executive interface', () => {
     fireEvent.click(screen.getByRole('button', { name: /Dictionnaire du diagnostic/i }));
     expect(screen.getByText('Score textuel')).toBeInTheDocument();
     expect(screen.getByText('Distance numérique')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /#101/i }));
+    expect(screen.getByText('Similarités')).toBeInTheDocument();
+    expect(screen.getByText('Projet: A')).toBeInTheDocument();
   });
 });

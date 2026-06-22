@@ -188,6 +188,23 @@ async def test_dashboard_ignores_invalid_date_durations(monkeypatch, tmp_path: P
 
 
 @pytest.mark.anyio
+async def test_similarity_returns_similarities_and_differences(monkeypatch, tmp_path: Path) -> None:
+    warehouse = tmp_path / "warehouse.duckdb"
+    create_dashboard_warehouse(warehouse)
+    monkeypatch.setenv("ANALYTICS_AUTH_DISABLED", "true")
+    monkeypatch.setenv("ANALYTICS_METRICS_DISABLED", "true")
+    monkeypatch.setattr(app_module, "WAREHOUSE_PATH", warehouse)
+
+    response = await request("POST", "/v1/similarity/1", json={"filters": {}, "topN": 2})
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert "Projet: Projet A" in result["similarities"]
+    assert "Priorite: Normale" in result["similarities"]
+    assert isinstance(result["differences"], list)
+
+
+@pytest.mark.anyio
 async def test_prediction_endpoints_return_options_and_forecast(monkeypatch, tmp_path: Path) -> None:
     warehouse = tmp_path / "warehouse.duckdb"
     create_warehouse(warehouse, months=41)

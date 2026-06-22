@@ -165,6 +165,7 @@ export default function SimilarityResultsSheet({
               {visible.map((r) => {
                 const pct = Math.round(r.combinedScore * 100);
                 const badge = scoreBadge(pct);
+                const similarities = r.similarities ?? [];
 
                 return (
                   <AccordionItem key={`${r.idB}-${r.rank}`} value={r.idB} className="border-0">
@@ -226,26 +227,39 @@ export default function SimilarityResultsSheet({
                         <ExternalLink className="h-3.5 w-3.5" />
                       </a>
 
-                      {/* Differences */}
-                      {r.differences.length > 0 && (
-                        <div className="mt-3 pt-3 border-t">
-                          <p className="text-xs font-medium text-muted-foreground mb-1.5">Différences</p>
-                          <ul className="space-y-1">
-                            {r.differences.map((d, i) => (
-                              <li key={i} className="text-xs flex items-start gap-1.5">
-                                <ChevronRight className="h-3 w-3 mt-0.5 text-muted-foreground shrink-0" />
-                                <span>{d}</span>
-                              </li>
-                            ))}
-                          </ul>
+                      <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2">
+                        <div>
+                          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Similarités</p>
+                          {similarities.length > 0 ? (
+                            <ul className="space-y-1">
+                              {similarities.map((item, i) => (
+                                <li key={i} className="flex items-start gap-1.5 text-xs">
+                                  <ChevronRight className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
+                                  <span>{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs italic text-muted-foreground">Aucune similarité métier notable.</p>
+                          )}
                         </div>
-                      )}
 
-                      {r.differences.length === 0 && (
-                        <div className="mt-3 pt-3 border-t">
-                          <p className="text-xs italic text-muted-foreground">Aucune différence notable.</p>
+                        <div>
+                          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Différences</p>
+                          {r.differences.length > 0 ? (
+                            <ul className="space-y-1">
+                              {r.differences.map((d, i) => (
+                                <li key={i} className="flex items-start gap-1.5 text-xs">
+                                  <ChevronRight className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+                                  <span>{d}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs italic text-muted-foreground">Aucune différence notable.</p>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </AccordionContent>
                   </AccordionItem>
                 );

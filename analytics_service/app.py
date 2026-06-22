@@ -562,9 +562,14 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
     for rank, item in enumerate(scored[: request.topN], start=1):
         ticket = item["ticket"]
         differences = []
+        similarities = []
         for label, key in (("Projet", "project_name"), ("Priorite", "priority"), ("Statut", "status"), ("Equipe", "team"), ("Type", "type")):
-            if reference.get(key) != ticket.get(key):
-                differences.append(f"{label}: {reference.get(key) or NOT_PROVIDED} != {ticket.get(key) or NOT_PROVIDED}")
+            reference_value = reference.get(key) or NOT_PROVIDED
+            ticket_value = ticket.get(key) or NOT_PROVIDED
+            if reference_value == ticket_value:
+                similarities.append(f"{label}: {reference_value}")
+            else:
+                differences.append(f"{label}: {reference_value} != {ticket_value}")
         output.append({
             "idA": str(ticket_id),
             "idB": str(ticket["id"]),
@@ -574,6 +579,7 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
             "textSimilarity": item["textSimilarity"],
             "numDistance": item["numDistance"],
             "combinedScore": item["combinedScore"],
+            "similarities": similarities,
             "differences": differences,
             "rank": rank,
         })

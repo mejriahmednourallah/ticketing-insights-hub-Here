@@ -91,6 +91,7 @@ export interface SimilarityResult {
   textSimilarity: number;
   numDistance: number;
   combinedScore: number;
+  similarities?: string[];
   differences: string[];
   rank: number;
 }
