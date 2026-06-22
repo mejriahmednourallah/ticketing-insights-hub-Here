@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AppShell from '@/components/AppShell';
+import SimilarityResultsSheet from '@/components/similarity/SimilarityResultsSheet';
 import { monthLabel } from '@/pages/Dashboard';
 import Predictions from '@/pages/Predictions';
 import {
@@ -141,6 +142,9 @@ describe('executive interface', () => {
     expect(screen.getByText('Tickets attendus le mois prochain')).toBeInTheDocument();
     expect(screen.getByText('Prévision mensuelle des tickets')).toBeInTheDocument();
 
+    expect(screen.getByText('Dictionnaire de prÃ©vision')).toBeInTheDocument();
+    expect(screen.getByText('Valeur du mois prochain')).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Projet' }));
     fireEvent.change(await screen.findByLabelText('Choisir un projet'), {
       target: { value: 'Projet A' },
@@ -179,5 +183,34 @@ describe('executive interface', () => {
     expect(monthLabel('2026-06-01')).toBe('juin 26');
     expect(monthLabel('2026-06-01T00:00:00+01:00')).toBe('juin 26');
     expect(monthLabel('bad-period')).toBe('Mois inconnu');
+  });
+
+  it('renders the similarity diagnostic dictionary', () => {
+    render(
+      <SimilarityResultsSheet
+        isOpen
+        referenceId="100"
+        referenceSubject="Ticket source"
+        onClose={() => undefined}
+        results={[
+          {
+            idA: '100',
+            idB: '101',
+            subjectA: 'Ticket source',
+            subjectB: 'Ticket proche',
+            statusB: 'Clos',
+            textSimilarity: 0.7,
+            numDistance: 2,
+            combinedScore: 0.82,
+            differences: ['Projet: A != B'],
+            rank: 1,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('Dictionnaire du diagnostic')).toBeInTheDocument();
+    expect(screen.getByText('Score textuel')).toBeInTheDocument();
+    expect(screen.getByText('Distance numÃ©rique')).toBeInTheDocument();
   });
 });

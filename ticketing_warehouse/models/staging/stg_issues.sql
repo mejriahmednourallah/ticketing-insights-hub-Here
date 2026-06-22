@@ -12,7 +12,8 @@
   - All nullable text fields are coalesced to '' so downstream models
     can GROUP BY without NULL-grouping surprises.
   - Timestamps are truncated to ::date for aggregation efficiency.
-  - age_hours is computed from creation to close (or now if still open).
+  - Invalid analytical dates are nulled so durations cannot go negative.
+  - age_hours is computed from creation to a valid close (or now if still open).
   - sla_breached joins the sla_plan_config lookup table; defaults to false
     when no matching plan is configured.
 */
@@ -58,18 +59,49 @@ select
   -- Date fields
   {{ date_cast('i.created_on') }}                                as created_date,
   {{ date_cast('i.updated_on') }}                                as updated_date,
-  {{ date_cast('i.closed_on') }}                                 as closed_date,
-  {{ date_cast('i.resolved_on') }}                               as resolved_date,
+  case
+    when i.created_on is not null
+     and i.closed_on is not null
+     and i.closed_on >= i.created_on
+     and i.closed_on >= timestamp '2000-01-01'
+    then {{ date_cast('i.closed_on') }}
+    else null
+  end                                                           as closed_date,
+  case
+    when i.created_on is not null
+     and i.resolved_on is not null
+     and i.resolved_on >= i.created_on
+     and i.resolved_on >= timestamp '2000-01-01'
+    then {{ date_cast('i.resolved_on') }}
+    else null
+  end                                                           as resolved_date,
 
   -- Derived
   round(
-    {{ datediff_hours('i.created_on', 'coalesce(i.closed_on, ' ~ current_timestamp_compat() ~ ')') }}
+    case
+      when i.created_on is null then null
+      when i.closed_on is not null
+       and i.closed_on >= i.created_on
+       and i.closed_on >= timestamp '2000-01-01'
+      then {{ datediff_hours('i.created_on', 'i.closed_on') }}
+      when {{ current_timestamp_compat() }} >= i.created_on
+      then {{ datediff_hours('i.created_on', current_timestamp_compat()) }}
+      else null
+    end
   , 2)                                                          as age_hours,
 
-  (i.closed_on is null)                                         as is_open,
+  not (
+    i.closed_on is not null
+    and i.created_on is not null
+    and i.closed_on >= i.created_on
+    and i.closed_on >= timestamp '2000-01-01'
+  )                                                            as is_open,
 
   case
     when i.closed_on is not null
+     and i.created_on is not null
+     and i.closed_on >= i.created_on
+     and i.closed_on >= timestamp '2000-01-01'
      and s.target_hours is not null
      and {{ datediff_hours('i.created_on', 'i.closed_on') }}
          > s.target_hours

@@ -35,6 +35,29 @@ function scoreBadge(pct: number) {
   return { variant: 'destructive' as const, label: 'Très faible' };
 }
 
+const diagnosticDictionary = [
+  {
+    term: 'Score de similaritÃ©',
+    definition: 'Combinaison du score textuel et de la proximitÃ© numÃ©rique.',
+  },
+  {
+    term: 'Score textuel',
+    definition: 'Mots communs entre sujet, type, tracker et projet du ticket de rÃ©fÃ©rence.',
+  },
+  {
+    term: 'Distance numÃ©rique',
+    definition: 'Ã‰cart sur lâ€™annÃ©e, le mois et lâ€™Ã¢ge du ticket.',
+  },
+  {
+    term: 'DiffÃ©rences',
+    definition: 'Champs mÃ©tier qui changent entre le ticket source et le ticket comparÃ©.',
+  },
+  {
+    term: 'Rang',
+    definition: 'Position du ticket aprÃ¨s tri du plus proche au moins proche.',
+  },
+];
+
 export default function SimilarityResultsSheet({
   results,
   referenceId,
@@ -108,6 +131,18 @@ export default function SimilarityResultsSheet({
           <div className="rounded-lg border bg-card p-3">
             <p className="text-[10px] text-muted-foreground">Score moyen</p>
             <p className="text-lg font-bold">{Math.round(avgScore * 100)}%</p>
+          </div>
+        </div>
+
+        <div className="border-b px-5 py-4 shrink-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dictionnaire du diagnostic</p>
+          <div className="mt-3 grid gap-3">
+            {diagnosticDictionary.map(entry => (
+              <div key={entry.term} className="text-xs leading-5">
+                <p className="font-semibold text-foreground">{entry.term}</p>
+                <p className="text-muted-foreground">{entry.definition}</p>
+              </div>
+            ))}
           </div>
         </div>
 

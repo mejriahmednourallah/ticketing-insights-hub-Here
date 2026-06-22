@@ -19,6 +19,8 @@ export type FieldMatch = {
   conflict: boolean;
 };
 
+const MIN_RESOLUTION_YEAR = 2000;
+
 export function normalizeFieldToken(value: string): string {
   return value
     .normalize('NFD')
@@ -101,4 +103,36 @@ export function toResolvedTimestamp(value: string): string | null {
   const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
   const parsed = new Date(dateOnly ? `${value}T00:00:00Z` : value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function parseTimestamp(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const parsed = new Date(dateOnly ? `${value}T00:00:00Z` : value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isValidResolvedDate(candidate: Date, created: Date | null): boolean {
+  if (candidate.getUTCFullYear() < MIN_RESOLUTION_YEAR) return false;
+  if (created && candidate.getTime() < created.getTime()) return false;
+  return true;
+}
+
+export function selectResolvedTimestamp(
+  customResolvedValue: string,
+  createdOn: string | null | undefined,
+  closedOn: string | null | undefined,
+): string | null {
+  const created = parseTimestamp(createdOn);
+  const customResolved = parseTimestamp(customResolvedValue);
+  if (customResolved && isValidResolvedDate(customResolved, created)) {
+    return customResolved.toISOString();
+  }
+
+  const closed = parseTimestamp(closedOn);
+  if (closed && isValidResolvedDate(closed, created)) {
+    return closed.toISOString();
+  }
+
+  return null;
 }

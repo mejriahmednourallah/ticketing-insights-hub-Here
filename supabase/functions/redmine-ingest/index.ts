@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import {
   selectCustomField,
-  toResolvedTimestamp,
+  selectResolvedTimestamp,
 } from './customFieldMapping.ts';
 import type { FieldMatch, FieldSelector } from './customFieldMapping.ts';
 
@@ -486,7 +486,11 @@ Deno.serve(async req => {
           created_on: issue.created_on ?? null,
           updated_on: issue.updated_on ?? null,
           closed_on: issue.closed_on ?? null,
-          resolved_on: toResolvedTimestamp(mapped.resolvedDate.value) ?? issue.closed_on ?? null,
+          resolved_on: selectResolvedTimestamp(
+            mapped.resolvedDate.value,
+            issue.created_on ?? null,
+            issue.closed_on ?? null,
+          ),
           team: mapped.team.value,
           technology: mapped.technology.value,
           type: dashboardType,

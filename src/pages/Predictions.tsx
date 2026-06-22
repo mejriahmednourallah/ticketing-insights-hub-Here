@@ -110,6 +110,46 @@ function ForecastUnavailableCard({ title, message, detail }: {
   );
 }
 
+function ForecastDictionary() {
+  const entries = [
+    {
+      term: 'Valeur du mois prochain',
+      definition: 'Projection du modÃ¨le sÃ©lectionnÃ© pour le premier mois futur complet.',
+    },
+    {
+      term: 'RÃ©fÃ©rence rÃ©cente',
+      definition: 'Niveau observÃ© sur les trois derniers mois complets, utilisÃ© comme point de comparaison.',
+    },
+    {
+      term: 'Ã‰volution attendue',
+      definition: 'Ã‰cart entre la projection du mois prochain et la rÃ©fÃ©rence rÃ©cente.',
+    },
+    {
+      term: 'FiabilitÃ©',
+      definition: 'Lecture simple de lâ€™erreur de backtest : plus lâ€™erreur est faible, plus la prÃ©vision est stable.',
+    },
+    {
+      term: 'Mois en cours',
+      definition: 'AffichÃ© pour contexte, mais exclu de lâ€™entraÃ®nement car les donnÃ©es du mois ne sont pas terminÃ©es.',
+    },
+  ];
+
+  return (
+    <section className="executive-card p-5 md:p-6">
+      <p className="section-kicker">Dictionnaire de prÃ©vision</p>
+      <h2 className="mt-1 text-lg font-bold text-slate-950">Comment lire les valeurs calculÃ©es</h2>
+      <dl className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {entries.map(entry => (
+          <div key={entry.term} className="border-l-2 border-teal-500 pl-3">
+            <dt className="text-sm font-bold text-slate-900">{entry.term}</dt>
+            <dd className="mt-1 text-xs leading-5 text-slate-500">{entry.definition}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 function ForecastChart({ data, unit, rangeLabel }: {
   data: Array<Record<string, unknown>>;
   unit: string;
@@ -386,6 +426,8 @@ export default function Predictions() {
               detail={`Minimum requis : ${delayOptions.minimumHistoryMonths} mois renseignés et ${delayOptions.minimumResolvedTickets ?? 120} tickets résolus.`}
             />
           )}
+
+          {(delayPrediction || volumePrediction) && <ForecastDictionary />}
 
           {volumePrediction ? (
             <>

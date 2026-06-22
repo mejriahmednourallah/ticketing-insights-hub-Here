@@ -39,6 +39,20 @@ from analytics_service.query import FILTER_COLUMNS, build_where, safe_sort_colum
 
 WAREHOUSE_PATH = Path(os.getenv("DUCKDB_PATH", "/warehouse/warehouse-current.duckdb"))
 FACT = "analytics.fct_tickets"
+MIN_ANALYTICS_DATE = "date '2000-01-01'"
+
+
+def duration_days_sql(end_column: str) -> str:
+    return f"""
+    case
+      when created_date is not null
+       and {end_column} is not null
+       and {end_column} >= created_date
+       and {end_column} >= {MIN_ANALYTICS_DATE}
+      then date_diff('second', created_date, {end_column}) / 86400.0
+      else null
+    end
+    """
 NOT_PROVIDED = "Non renseigné"
 
 
@@ -324,8 +338,8 @@ def dashboard(request: FilterRequest) -> dict[str, Any]:
             select
               count(*)::integer as totalTickets,
               count(distinct project_name)::integer as projectsWithTickets,
-              round(avg(date_diff('second', created_date, resolved_date) / 3600.0) / 24.0, 1) as avgResolvedDays,
-              round(avg(date_diff('second', created_date, closed_date) / 3600.0) / 24.0, 1) as avgClosedDays
+              round(avg({duration_days_sql("resolved_date")}), 1) as avgResolvedDays,
+              round(avg({duration_days_sql("closed_date")}), 1) as avgClosedDays
             from {FACT}{where}
             """,
             params,
@@ -336,8 +350,8 @@ def dashboard(request: FilterRequest) -> dict[str, Any]:
             select
               count(*)::integer as globalTickets,
               count(distinct project_name)::integer as globalProjects,
-              round(avg(date_diff('second', created_date, resolved_date) / 3600.0) / 24.0, 1) as globalAvgResolvedDays,
-              round(avg(date_diff('second', created_date, closed_date) / 3600.0) / 24.0, 1) as globalAvgClosedDays
+              round(avg({duration_days_sql("resolved_date")}), 1) as globalAvgResolvedDays,
+              round(avg({duration_days_sql("closed_date")}), 1) as globalAvgClosedDays
             from {FACT}
             """,
         )[0]
@@ -413,7 +427,7 @@ def dashboard(request: FilterRequest) -> dict[str, Any]:
                 conn,
                 f"""
                 select created_year::integer as year,
-                       round(avg(date_diff('second', created_date, closed_date) / 86400.0), 1) as value
+                       round(avg({duration_days_sql("closed_date")}), 1) as value
                 from {FACT}{where}
                 group by 1 order by 1
                 """,
@@ -423,7 +437,7 @@ def dashboard(request: FilterRequest) -> dict[str, Any]:
                 conn,
                 f"""
                 select created_year::integer as year,
-                       round(avg(date_diff('second', created_date, resolved_date) / 86400.0), 1) as value
+                       round(avg({duration_days_sql("resolved_date")}), 1) as value
                 from {FACT}{where}
                 group by 1 order by 1
                 """,

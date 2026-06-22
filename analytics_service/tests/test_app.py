@@ -1,5 +1,7 @@
 from pathlib import Path
+from datetime import datetime
 
+import duckdb
 import fastapi.routing
 import fastapi.dependencies.utils
 import httpx
@@ -64,6 +66,125 @@ async def test_prediction_endpoint_requires_authentication(monkeypatch, tmp_path
     )
 
     assert response.status_code == 401
+
+
+def create_dashboard_warehouse(path: Path) -> None:
+    with duckdb.connect(str(path)) as conn:
+        conn.execute("create schema analytics")
+        conn.execute(
+            """
+            create table analytics.fct_tickets (
+              id integer,
+              project_name varchar,
+              priority varchar,
+              subject varchar,
+              team varchar,
+              source varchar,
+              status varchar,
+              type varchar,
+              satisfaction varchar,
+              author varchar,
+              assignee varchar,
+              has_attachment boolean,
+              created_month integer,
+              created_date timestamp,
+              created_year integer,
+              technology varchar,
+              tracker varchar,
+              closed_date timestamp,
+              resolved_date timestamp
+            )
+            """
+        )
+        rows = [
+            (
+                1,
+                "Projet A",
+                "Normale",
+                "Ticket valide",
+                "RUN",
+                "Client",
+                "Clos",
+                "Technique",
+                "",
+                "Alice",
+                "Bob",
+                False,
+                1,
+                datetime(2026, 1, 1),
+                2026,
+                "Drupal",
+                "Bug",
+                datetime(2026, 1, 6),
+                datetime(2026, 1, 11),
+            ),
+            (
+                2,
+                "Projet A",
+                "Normale",
+                "Resolved invalide",
+                "RUN",
+                "Client",
+                "Clos",
+                "Technique",
+                "",
+                "Alice",
+                "Bob",
+                False,
+                1,
+                datetime(2026, 1, 1),
+                2026,
+                "Drupal",
+                "Bug",
+                datetime(2026, 1, 3),
+                datetime(23, 9, 1),
+            ),
+            (
+                3,
+                "Projet A",
+                "Normale",
+                "Closed invalide",
+                "RUN",
+                "Client",
+                "Clos",
+                "Technique",
+                "",
+                "Alice",
+                "Bob",
+                False,
+                1,
+                datetime(2026, 1, 10),
+                2026,
+                "Drupal",
+                "Bug",
+                datetime(2025, 1, 1),
+                datetime(2026, 1, 15),
+            ),
+        ]
+        conn.executemany(
+            "insert into analytics.fct_tickets values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+
+
+@pytest.mark.anyio
+async def test_dashboard_ignores_invalid_date_durations(monkeypatch, tmp_path: Path) -> None:
+    warehouse = tmp_path / "warehouse.duckdb"
+    create_dashboard_warehouse(warehouse)
+    monkeypatch.setenv("ANALYTICS_AUTH_DISABLED", "true")
+    monkeypatch.setenv("ANALYTICS_METRICS_DISABLED", "true")
+    monkeypatch.setattr(app_module, "WAREHOUSE_PATH", warehouse)
+
+    response = await request("POST", "/v1/dashboard/query", json={"filters": {}})
+
+    assert response.status_code == 200
+    kpis = response.json()["kpis"]
+    assert kpis["avgResolvedDays"] == 7.5
+    assert kpis["globalAvgResolvedDays"] == 7.5
+    assert kpis["avgClosedDays"] == 3.5
+    assert kpis["globalAvgClosedDays"] == 3.5
+    assert all(point["value"] is None or point["value"] >= 0 for point in response.json()["charts"]["avgResolvedByYear"])
+    assert all(point["value"] is None or point["value"] >= 0 for point in response.json()["charts"]["avgClosedByYear"])
 
 
 @pytest.mark.anyio
