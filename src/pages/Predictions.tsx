@@ -114,30 +114,30 @@ function ForecastDictionary() {
   const entries = [
     {
       term: 'Valeur du mois prochain',
-      definition: 'Projection du modÃ¨le sÃ©lectionnÃ© pour le premier mois futur complet.',
+      definition: 'Projection du modèle sélectionné pour le premier mois futur complet.',
     },
     {
-      term: 'RÃ©fÃ©rence rÃ©cente',
-      definition: 'Niveau observÃ© sur les trois derniers mois complets, utilisÃ© comme point de comparaison.',
+      term: 'Référence récente',
+      definition: 'Niveau observé sur les trois derniers mois complets, utilisé comme point de comparaison.',
     },
     {
-      term: 'Ã‰volution attendue',
-      definition: 'Ã‰cart entre la projection du mois prochain et la rÃ©fÃ©rence rÃ©cente.',
+      term: 'Évolution attendue',
+      definition: 'Écart entre la projection du mois prochain et la référence récente.',
     },
     {
-      term: 'FiabilitÃ©',
-      definition: 'Lecture simple de lâ€™erreur de backtest : plus lâ€™erreur est faible, plus la prÃ©vision est stable.',
+      term: 'Fiabilité',
+      definition: 'Lecture simple de l’erreur de backtest : plus l’erreur est faible, plus la prévision est stable.',
     },
     {
       term: 'Mois en cours',
-      definition: 'AffichÃ© pour contexte, mais exclu de lâ€™entraÃ®nement car les donnÃ©es du mois ne sont pas terminÃ©es.',
+      definition: 'Affiché pour contexte, mais exclu de l’entraînement car les données du mois ne sont pas terminées.',
     },
   ];
 
   return (
     <section className="executive-card p-5 md:p-6">
-      <p className="section-kicker">Dictionnaire de prÃ©vision</p>
-      <h2 className="mt-1 text-lg font-bold text-slate-950">Comment lire les valeurs calculÃ©es</h2>
+      <p className="section-kicker">Dictionnaire de prévision</p>
+      <h2 className="mt-1 text-lg font-bold text-slate-950">Comment lire les valeurs calculées</h2>
       <dl className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {entries.map(entry => (
           <div key={entry.term} className="border-l-2 border-teal-500 pl-3">

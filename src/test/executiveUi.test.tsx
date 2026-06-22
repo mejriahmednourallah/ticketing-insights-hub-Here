@@ -142,7 +142,7 @@ describe('executive interface', () => {
     expect(screen.getByText('Tickets attendus le mois prochain')).toBeInTheDocument();
     expect(screen.getByText('Prévision mensuelle des tickets')).toBeInTheDocument();
 
-    expect(screen.getByText('Dictionnaire de prÃ©vision')).toBeInTheDocument();
+    expect(screen.getByText('Dictionnaire de prévision')).toBeInTheDocument();
     expect(screen.getByText('Valeur du mois prochain')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Projet' }));
@@ -211,6 +211,6 @@ describe('executive interface', () => {
 
     expect(screen.getByText('Dictionnaire du diagnostic')).toBeInTheDocument();
     expect(screen.getByText('Score textuel')).toBeInTheDocument();
-    expect(screen.getByText('Distance numÃ©rique')).toBeInTheDocument();
+    expect(screen.getByText('Distance numérique')).toBeInTheDocument();
   });
 });

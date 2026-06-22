@@ -37,20 +37,20 @@ function scoreBadge(pct: number) {
 
 const diagnosticDictionary = [
   {
-    term: 'Score de similaritÃ©',
-    definition: 'Combinaison du score textuel et de la proximitÃ© numÃ©rique.',
+    term: 'Score de similarité',
+    definition: 'Combinaison du score textuel et de la proximité numérique.',
   },
   {
     term: 'Score textuel',
-    definition: 'Mots communs entre sujet, type, tracker et projet du ticket de rÃ©fÃ©rence.',
+    definition: 'Mots communs entre sujet, type, tracker et projet du ticket de référence.',
   },
   {
-    term: 'Distance numÃ©rique',
-    definition: 'Ã‰cart sur lâ€™annÃ©e, le mois et lâ€™Ã¢ge du ticket.',
+    term: 'Distance numérique',
+    definition: 'Écart sur l’année, le mois et l’âge du ticket.',
   },
   {
-    term: 'DiffÃ©rences',
-    definition: 'Champs mÃ©tier qui changent entre le ticket source et le ticket comparÃ©.',
+    term: 'Différences',
+    definition: 'Champs métier qui changent entre le ticket source et le ticket comparé.',
   },
   {
     term: 'Rang',
