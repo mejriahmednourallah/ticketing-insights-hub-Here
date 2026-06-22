@@ -74,21 +74,19 @@ services:
     build:
       context: .
       dockerfile: deploy/duckdb-ui/Dockerfile
+    network_mode: host
     restart: unless-stopped
     environment:
       DUCKDB_WAREHOUSE_PATH: /warehouse/warehouse-current.duckdb
       DUCKDB_UI_CATALOG_PATH: /tmp/duckdb-ui-catalog.duckdb
-      DUCKDB_UI_PORT: 4213
-      DUCKDB_UI_INTERNAL_PORT: 4214
-    ports:
-      - "127.0.0.1:14213:4213"
+      DUCKDB_UI_PORT: 14213
     volumes:
       - duckdb_warehouse:/warehouse:ro
     depends_on:
       warehouse-refresh:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:4213', timeout=5); raise SystemExit(0 if r.status < 500 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:14213', timeout=5); raise SystemExit(0 if r.status < 500 else 1)\""]
       interval: 30s
       timeout: 5s
       retries: 8

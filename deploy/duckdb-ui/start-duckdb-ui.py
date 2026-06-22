@@ -1,5 +1,4 @@
 import os
-import subprocess
 import time
 from pathlib import Path
 
@@ -12,8 +11,7 @@ def sql_string(value: str) -> str:
 
 warehouse_path = Path(os.environ.get("DUCKDB_WAREHOUSE_PATH", "/warehouse/warehouse-current.duckdb"))
 catalog_path = Path(os.environ.get("DUCKDB_UI_CATALOG_PATH", "/tmp/duckdb-ui-catalog.duckdb"))
-public_port = int(os.environ.get("DUCKDB_UI_PORT", "4213"))
-internal_port = int(os.environ.get("DUCKDB_UI_INTERNAL_PORT", "4214"))
+ui_port = int(os.environ.get("DUCKDB_UI_PORT", "14213"))
 
 while not warehouse_path.exists():
     print(f"[duckdb-ui] waiting for {warehouse_path}", flush=True)
@@ -21,16 +19,8 @@ while not warehouse_path.exists():
 
 catalog_path.parent.mkdir(parents=True, exist_ok=True)
 
-socat = subprocess.Popen(
-    [
-        "socat",
-        f"TCP-LISTEN:{public_port},fork,reuseaddr,bind=0.0.0.0",
-        f"TCP:127.0.0.1:{internal_port}",
-    ],
-)
-
 con = duckdb.connect(str(catalog_path))
-con.execute(f"SET ui_local_port = {internal_port}")
+con.execute(f"SET ui_local_port = {ui_port}")
 con.execute("UPDATE EXTENSIONS")
 con.execute("FORCE INSTALL ui")
 con.execute("LOAD ui")
@@ -43,7 +33,7 @@ except duckdb.Error:
 
 con.execute("CALL start_ui_server()")
 print(
-    f"[duckdb-ui] listening on 0.0.0.0:{public_port} with {warehouse_path} attached as wh",
+    f"[duckdb-ui] listening on 127.0.0.1:{ui_port} with {warehouse_path} attached as wh",
     flush=True,
 )
 
@@ -52,4 +42,3 @@ try:
         time.sleep(3600)
 except KeyboardInterrupt:
     con.execute("CALL stop_ui_server()")
-    socat.terminate()
