@@ -33,7 +33,7 @@ con = duckdb.connect(str(catalog_path))
 con.execute(f"SET ui_local_port = {internal_port}")
 con.execute("INSTALL ui")
 con.execute("LOAD ui")
-con.execute(f"ATTACH {sql_string(str(warehouse_path))} (READ_ONLY) AS wh")
+con.execute(f"ATTACH {sql_string(str(warehouse_path))} AS wh (READ_ONLY)")
 
 try:
     con.execute("USE wh.analytics")
