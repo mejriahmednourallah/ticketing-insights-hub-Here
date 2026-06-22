@@ -210,6 +210,7 @@ describe('executive interface', () => {
     );
 
     expect(screen.getByText('Dictionnaire du diagnostic')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Dictionnaire du diagnostic/i }));
     expect(screen.getByText('Score textuel')).toBeInTheDocument();
     expect(screen.getByText('Distance numérique')).toBeInTheDocument();
   });

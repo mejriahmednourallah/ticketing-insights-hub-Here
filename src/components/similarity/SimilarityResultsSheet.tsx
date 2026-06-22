@@ -54,7 +54,7 @@ const diagnosticDictionary = [
   },
   {
     term: 'Rang',
-    definition: 'Position du ticket aprÃ¨s tri du plus proche au moins proche.',
+    definition: 'Position du ticket après tri du plus proche au moins proche.',
   },
 ];
 
@@ -134,20 +134,28 @@ export default function SimilarityResultsSheet({
           </div>
         </div>
 
-        <div className="border-b px-5 py-4 shrink-0">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dictionnaire du diagnostic</p>
-          <div className="mt-3 grid gap-3">
-            {diagnosticDictionary.map(entry => (
-              <div key={entry.term} className="text-xs leading-5">
-                <p className="font-semibold text-foreground">{entry.term}</p>
-                <p className="text-muted-foreground">{entry.definition}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* Accordion list */}
         <div className="flex-1 overflow-y-auto">
+          <Accordion type="single" collapsible className="border-b">
+            <AccordionItem value="diagnostic-dictionary" className="border-0">
+              <AccordionTrigger className="px-5 py-3 text-left hover:bg-muted/30 hover:no-underline [&[data-state=open]]:bg-muted/20">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Dictionnaire du diagnostic
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="px-5 pb-4 pt-0">
+                <div className="grid gap-3">
+                  {diagnosticDictionary.map(entry => (
+                    <div key={entry.term} className="text-xs leading-5">
+                      <p className="font-semibold text-foreground">{entry.term}</p>
+                      <p className="text-muted-foreground">{entry.definition}</p>
+                    </div>
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
           {visible.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
               Aucun résultat de similarité.
