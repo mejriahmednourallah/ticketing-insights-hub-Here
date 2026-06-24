@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import math
 import os
 import re
@@ -9,6 +11,8 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 
 import duckdb
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -70,6 +74,11 @@ class TicketSearchRequest(FilterRequest):
 
 class SimilarityRequest(FilterRequest):
     topN: int = Field(default=10, ge=1, le=50)
+
+
+class RedmineLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=200)
 
 
 class PredictionScope(BaseModel):
@@ -140,6 +149,59 @@ def connect() -> duckdb.DuckDBPyConnection:
     if not WAREHOUSE_PATH.exists():
         raise HTTPException(status_code=503, detail="Warehouse is not ready")
     return duckdb.connect(str(WAREHOUSE_PATH), read_only=True)
+
+
+def _redmine_url(path: str) -> str:
+    base = os.getenv("REDMINE_URL", "https://maintenance.medianet.tn").rstrip("/")
+    return f"{base}/{path.lstrip('/')}"
+
+
+@app.post("/v1/auth/redmine")
+def redmine_login(payload: RedmineLoginRequest) -> dict[str, Any]:
+    username = payload.username.strip()
+    password = payload.password
+    demo_username = os.getenv("DEMO_LOGIN_USERNAME", "demouser")
+    demo_password = os.getenv("DEMO_LOGIN_PASSWORD", "demouser")
+
+    if username == demo_username and password == demo_password:
+        return {
+            "ok": True,
+            "source": "demo",
+            "user": {"login": demo_username, "name": "Demo User"},
+        }
+
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    request = UrlRequest(
+        _redmine_url("/users/current.json"),
+        headers={
+            "Authorization": f"Basic {token}",
+            "Accept": "application/json",
+            "User-Agent": "ticketing-insights-auth/1.0",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=8) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise HTTPException(status_code=401, detail="Identifiants Redmine invalides.") from exc
+        raise HTTPException(status_code=502, detail="Redmine a refusé la vérification.") from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=502, detail="Impossible de vérifier Redmine pour le moment.") from exc
+
+    user = data.get("user") or {}
+    name = " ".join(
+        part for part in [str(user.get("firstname") or ""), str(user.get("lastname") or "")] if part
+    ).strip()
+    return {
+        "ok": True,
+        "source": "redmine",
+        "user": {
+            "login": user.get("login") or username,
+            "name": name or user.get("mail") or username,
+        },
+    }
 
 
 def rows(conn: duckdb.DuckDBPyConnection, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
@@ -526,8 +588,8 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
         candidates = rows(
             conn,
             f"""
-            select id, subject, description, type, tracker, project_name, status, priority, team,
-                   created_year, created_month, age_hours
+            select id, subject, description, type, tracker, project_name, technology, segment_client,
+                   status, priority, team, created_year, created_month, age_hours
             from {FACT}{where}
             """,
             params,
@@ -539,7 +601,7 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
     def text(item: dict[str, Any]) -> str:
         return " ".join(
             str(item.get(key) or "")
-            for key in ("subject", "description", "type", "tracker", "project_name")
+            for key in ("subject", "description", "project_name", "technology", "segment_client")
         )
 
     ref_vector = Counter(tokenize(text(reference)))
@@ -564,15 +626,12 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
     output = []
     for rank, item in enumerate(scored[: request.topN], start=1):
         ticket = item["ticket"]
-        differences = []
-        similarities = []
-        for label, key in (("Projet", "project_name"), ("Priorite", "priority"), ("Statut", "status"), ("Equipe", "team"), ("Type", "type")):
+        similarities = [f"Sujet / description: similarité textuelle {round(item['textSimilarity'] * 100)}%"]
+        for label, key in (("Projet", "project_name"), ("Client", "segment_client"), ("CMS / Framework", "technology")):
             reference_value = reference.get(key) or NOT_PROVIDED
             ticket_value = ticket.get(key) or NOT_PROVIDED
-            if reference_value == ticket_value:
+            if reference_value != NOT_PROVIDED and reference_value == ticket_value:
                 similarities.append(f"{label}: {reference_value}")
-            else:
-                differences.append(f"{label}: {reference_value} != {ticket_value}")
         output.append({
             "idA": str(ticket_id),
             "idB": str(ticket["id"]),
@@ -583,7 +642,7 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
             "numDistance": item["numDistance"],
             "combinedScore": item["combinedScore"],
             "similarities": similarities,
-            "differences": differences,
+            "differences": [],
             "rank": rank,
         })
     return {"reference": {"id": str(ticket_id), "subject": reference["subject"]}, "results": output}

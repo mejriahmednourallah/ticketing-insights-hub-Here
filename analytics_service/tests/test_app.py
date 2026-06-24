@@ -91,6 +91,7 @@ def create_dashboard_warehouse(path: Path) -> None:
               created_date timestamp,
               created_year integer,
               technology varchar,
+              segment_client varchar,
               tracker varchar,
               closed_date timestamp,
               resolved_date timestamp,
@@ -117,6 +118,7 @@ def create_dashboard_warehouse(path: Path) -> None:
                 datetime(2026, 1, 1),
                 2026,
                 "Drupal",
+                "Client A",
                 "Bug",
                 datetime(2026, 1, 6),
                 datetime(2026, 1, 11),
@@ -140,6 +142,7 @@ def create_dashboard_warehouse(path: Path) -> None:
                 datetime(2026, 1, 1),
                 2026,
                 "Drupal",
+                "Client B",
                 "Bug",
                 datetime(2026, 1, 3),
                 datetime(23, 9, 1),
@@ -163,6 +166,7 @@ def create_dashboard_warehouse(path: Path) -> None:
                 datetime(2026, 1, 10),
                 2026,
                 "Drupal",
+                "Client A",
                 "Bug",
                 datetime(2025, 1, 1),
                 datetime(2026, 1, 15),
@@ -170,7 +174,7 @@ def create_dashboard_warehouse(path: Path) -> None:
             ),
         ]
         conn.executemany(
-            "insert into analytics.fct_tickets values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into analytics.fct_tickets values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
 
@@ -196,7 +200,7 @@ async def test_dashboard_ignores_invalid_date_durations(monkeypatch, tmp_path: P
 
 
 @pytest.mark.anyio
-async def test_similarity_returns_similarities_and_differences(monkeypatch, tmp_path: Path) -> None:
+async def test_similarity_returns_similarity_reasons(monkeypatch, tmp_path: Path) -> None:
     warehouse = tmp_path / "warehouse.duckdb"
     create_dashboard_warehouse(warehouse)
     monkeypatch.setenv("ANALYTICS_AUTH_DISABLED", "true")
@@ -209,9 +213,11 @@ async def test_similarity_returns_similarities_and_differences(monkeypatch, tmp_
     result = response.json()["results"][0]
     assert result["idB"] == "3"
     assert result["textSimilarity"] > 0
+    assert any(item.startswith("Sujet / description:") for item in result["similarities"])
     assert "Projet: Projet A" in result["similarities"]
-    assert "Priorite: Normale" in result["similarities"]
-    assert isinstance(result["differences"], list)
+    assert "Client: Client A" in result["similarities"]
+    assert "CMS / Framework: Drupal" in result["similarities"]
+    assert result["differences"] == []
 
 
 @pytest.mark.anyio

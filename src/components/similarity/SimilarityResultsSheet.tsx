@@ -42,15 +42,11 @@ const diagnosticDictionary = [
   },
   {
     term: 'Score textuel',
-    definition: 'Mots communs entre sujet, type, tracker et projet du ticket de référence.',
+    definition: 'Mots communs entre le sujet, la description, le projet, le client et le CMS du ticket de référence.',
   },
   {
     term: 'Distance numérique',
     definition: 'Écart sur l’année, le mois et l’âge du ticket.',
-  },
-  {
-    term: 'Différences',
-    definition: 'Champs métier qui changent entre le ticket source et le ticket comparé.',
   },
   {
     term: 'Rang',
@@ -230,13 +226,9 @@ export default function SimilarityResultsSheet({
                         Ouvrir le ticket dans Redmine
                         <ExternalLink className="h-3.5 w-3.5" />
                       </a>
-                      <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium leading-5 text-emerald-800">
-                        Analyse textuelle : sujet et description du ticket, complétés par le type, le tracker et le projet.
-                      </p>
-
-                      <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2">
+                      <div className="mt-3 border-t pt-3">
                         <div>
-                          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Similarités</p>
+                          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Pourquoi ce ticket est similaire</p>
                           {similarities.length > 0 ? (
                             <ul className="space-y-1">
                               {similarities.map((item, i) => (
@@ -247,23 +239,7 @@ export default function SimilarityResultsSheet({
                               ))}
                             </ul>
                           ) : (
-                            <p className="text-xs italic text-muted-foreground">Aucune similarité métier notable.</p>
-                          )}
-                        </div>
-
-                        <div>
-                          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Différences</p>
-                          {r.differences.length > 0 ? (
-                            <ul className="space-y-1">
-                              {r.differences.map((d, i) => (
-                                <li key={i} className="flex items-start gap-1.5 text-xs">
-                                  <ChevronRight className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-                                  <span>{d}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="text-xs italic text-muted-foreground">Aucune différence notable.</p>
+                            <p className="text-xs italic text-muted-foreground">Similarité surtout portée par le sujet et la description.</p>
                           )}
                         </div>
                       </div>

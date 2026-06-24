@@ -114,7 +114,7 @@ export interface SimilarityCache {
   numerals: number[][];
 }
 
-const textField = (t: Ticket) => `${t.subject} ${t.description ?? ''} ${t.type} ${t.tracker} ${t.project}`;
+const textField = (t: Ticket) => `${t.subject} ${t.description ?? ''} ${t.project} ${t.technology} ${t.segmentClient}`;
 
 /** Pre-compute tokenized texts, IDF model, TF-IDF vectors and numerical vectors once. */
 export function buildSimilarityCache(tickets: Ticket[]): SimilarityCache {
@@ -155,12 +155,10 @@ export function querySimilarity(
     const numSim = 1 - normDists[i];
     const combined = 0.7 * p.textSim + 0.3 * numSim;
 
-    const diffs: string[] = [];
-    if (reference.project !== b.project) diffs.push(`Projet: ${reference.project} ≠ ${b.project}`);
-    if (reference.priority !== b.priority) diffs.push(`Priorité: ${reference.priority} ≠ ${b.priority}`);
-    if (reference.status !== b.status) diffs.push(`Statut: ${reference.status} ≠ ${b.status}`);
-    if (reference.team !== b.team) diffs.push(`Équipe: ${reference.team} ≠ ${b.team}`);
-    if (reference.type !== b.type) diffs.push(`Type: ${reference.type} ≠ ${b.type}`);
+    const similarities = [`Sujet / description: similarité textuelle ${Math.round(p.textSim * 100)}%`];
+    if (reference.project && reference.project === b.project) similarities.push(`Projet: ${reference.project}`);
+    if (reference.segmentClient && reference.segmentClient === b.segmentClient) similarities.push(`Client: ${reference.segmentClient}`);
+    if (reference.technology && reference.technology === b.technology) similarities.push(`CMS / Framework: ${reference.technology}`);
 
     return {
       idA: reference.id,
@@ -171,7 +169,8 @@ export function querySimilarity(
       textSimilarity: p.textSim,
       numDistance: p.dist,
       combinedScore: combined,
-      differences: diffs,
+      similarities,
+      differences: [],
       rank: 0, // assigned after sort
     };
   });
@@ -201,7 +200,7 @@ export function computeHeatmapMatrix(tickets: Ticket[]): { ids: string[]; matrix
   const n = subset.length;
   if (n < 2) return { ids: subset.map(t => t.id), matrix: subset.map(() => [1]) };
 
-  const textField = (t: Ticket) => `${t.subject} ${t.description ?? ''} ${t.type} ${t.tracker} ${t.project}`;
+  const textField = (t: Ticket) => `${t.subject} ${t.description ?? ''} ${t.project} ${t.technology} ${t.segmentClient}`;
   const tokenized = subset.map(t => tokenize(textField(t)));
   const model = buildIdf(tokenized);
   const vectors = tokenized.map(tok => tfidfVector(tok, model));

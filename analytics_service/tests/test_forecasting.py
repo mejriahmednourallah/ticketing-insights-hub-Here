@@ -187,6 +187,12 @@ def test_forecast_has_six_nonnegative_months_and_business_summary(tmp_path: Path
     assert result["model"]["weightedMase"] >= 0
     assert "metricsByHorizon" in result["model"]
     assert result["summary"]["businessInsight"]
+    assert result["explanation"]["headline"]
+    assert "trois derniers mois" in result["explanation"]["paragraphs"][0]
+    assert result["explanation"]["evidence"]
+    assert result["explanation"]["contributors"]
+    assert result["explanation"]["contributors"][0]["dimension"] in {"team", "project"}
+    assert result["explanation"]["confidenceNote"]
     assert all(point["predictedMedianDays"] >= 0 for point in result["forecast"])
     assert all(point["lowerBoundDays"] >= 0 for point in result["forecast"])
     assert all(
@@ -212,6 +218,12 @@ def test_ticket_volume_forecast_has_six_nonnegative_months(tmp_path: Path) -> No
     assert result["model"]["name"] in set(forecasting.CANDIDATE_MODELS)
     assert result["model"]["weightedMase"] >= 0
     assert result["summary"]["businessInsight"]
+    assert result["explanation"]["headline"]
+    assert "trois derniers mois" in result["explanation"]["paragraphs"][0]
+    assert result["explanation"]["evidence"]
+    assert result["explanation"]["contributors"]
+    assert result["explanation"]["contributors"][0]["dimension"] in {"team", "project"}
+    assert result["explanation"]["confidenceNote"]
     assert all(point["predictedTickets"] >= 0 for point in result["forecast"])
     assert all(point["lowerBoundTickets"] >= 0 for point in result["forecast"])
     assert all(

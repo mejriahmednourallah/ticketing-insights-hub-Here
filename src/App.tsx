@@ -8,6 +8,7 @@ import NotFound from "./pages/NotFound.tsx";
 import SimilarityAnalysis from "./pages/SimilarityAnalysis.tsx";
 import Predictions from "./pages/Predictions.tsx";
 import AppShell from "./components/AppShell.tsx";
+import AuthGate from "./components/AuthGate.tsx";
 
 const queryClient = new QueryClient();
 
@@ -16,17 +17,19 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route path="/" element={<Index />} />
-            <Route path="/similarity" element={<SimilarityAnalysis />} />
-            <Route path="/predictions" element={<Predictions />} />
-          </Route>
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      <AuthGate>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="/" element={<Index />} />
+              <Route path="/similarity" element={<SimilarityAnalysis />} />
+              <Route path="/predictions" element={<Predictions />} />
+            </Route>
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthGate>
     </TooltipProvider>
   </QueryClientProvider>
 );

@@ -65,6 +65,15 @@ export type TicketSearchResponse = {
   totalPages: number;
 };
 
+export type LoginResponse = {
+  ok: boolean;
+  source: 'redmine' | 'demo';
+  user: {
+    login: string;
+    name: string;
+  };
+};
+
 export type QualityResponse = {
   warehouseUpdatedAt: string;
   formatIssueCount: number;
@@ -130,6 +139,22 @@ export type PredictionOptionsResponse = {
   horizonMonths: number;
 };
 
+export type ForecastExplanation = {
+  headline: string;
+  paragraphs: string[];
+  evidence: Array<{ label: string; value: string; meaning: string }>;
+  contributors: Array<{
+    dimension: 'project' | 'team' | 'type';
+    name: string;
+    metric: string;
+    recentValue: number;
+    previousValue: number;
+    changePct: number | null;
+    interpretation: string;
+  }>;
+  confidenceNote: string;
+};
+
 export type ResolutionDelayPredictionResponse = {
   scope: { type: PredictionScopeType; value: string | null };
   historical: Array<{ period: string; medianDays: number; resolvedTickets: number }>;
@@ -162,6 +187,7 @@ export type ResolutionDelayPredictionResponse = {
     historyMonths: number;
     resolvedTickets: number;
   };
+  explanation?: ForecastExplanation;
 };
 
 export type TicketVolumePredictionResponse = {
@@ -196,6 +222,7 @@ export type TicketVolumePredictionResponse = {
     historyMonths: number;
     tickets: number;
   };
+  explanation?: ForecastExplanation;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -234,6 +261,13 @@ export function loadSimilarity(ticketId: string, filters: Filters) {
     `/v1/similarity/${encodeURIComponent(ticketId)}`,
     { method: 'POST', body: JSON.stringify({ filters, topN: 10 }) },
   );
+}
+
+export function loginWithRedmine(username: string, password: string): Promise<LoginResponse> {
+  return request('/v1/auth/redmine', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
 }
 
 export async function loadAiContext(filters: Filters): Promise<string> {

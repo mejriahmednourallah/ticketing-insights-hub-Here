@@ -836,6 +836,354 @@ def _ticket_volume_business_summary(change_pct: float) -> str:
     return "Volume stable : le nombre de nouveaux tickets devrait rester proche du niveau récent."
 
 
+def _mean(values: list[float]) -> float | None:
+    clean = [value for value in values if math.isfinite(value)]
+    return sum(clean) / len(clean) if clean else None
+
+
+def _pct_change(current: float | None, previous: float | None) -> float | None:
+    if current is None or previous is None or previous == 0:
+        return None
+    return (current - previous) / previous * 100.0
+
+
+def _format_pct(value: float | None) -> str:
+    if value is None:
+        return "non comparable"
+    return f"{value:+.1f}%"
+
+
+def _fact_columns(conn: duckdb.DuckDBPyConnection) -> set[str]:
+    return {
+        row[0]
+        for row in conn.execute(
+            """
+            select column_name
+            from information_schema.columns
+            where table_schema = 'analytics'
+              and table_name = 'fct_tickets'
+            """
+        ).fetchall()
+    }
+
+
+def _explanation_dimensions(
+    conn: duckdb.DuckDBPyConnection,
+    scope_type: ScopeType,
+) -> list[tuple[str, str, str, str]]:
+    columns = _fact_columns(conn)
+    candidates = [
+        ("project", "Projet", "project_name", "coalesce(nullif(project_name, ''), 'Non renseigné')"),
+        ("team", "Équipe", "team", "coalesce(nullif(team, ''), 'Non renseigné')"),
+        ("type", "Type", "type", "coalesce(nullif(type, ''), 'Non renseigné')"),
+    ]
+    if scope_type == "project":
+        allowed = {"team", "type"}
+    elif scope_type == "team":
+        allowed = {"project", "type"}
+    else:
+        allowed = {"project", "team", "type"}
+    return [
+        (dimension, label, column, expression)
+        for dimension, label, column, expression in candidates
+        if dimension in allowed and column in columns
+    ]
+
+
+def _contributor_interpretation(
+    target: ForecastTarget,
+    label: str,
+    name: str,
+    change_pct: float | None,
+    recent: float,
+    previous: float,
+) -> str:
+    if previous == 0 and recent > 0:
+        return f"{label} {name} apparaît dans les trois derniers mois et pèse dans le signal récent."
+    if change_pct is None:
+        return f"{label} {name} a un niveau récent comparable difficile à mesurer."
+    if target == "resolution_delay":
+        if change_pct <= -10:
+            return f"{label} {name} tire le délai récent vers le bas."
+        if change_pct >= 10:
+            return f"{label} {name} tire le délai récent vers le haut."
+        return f"{label} {name} reste proche de son niveau précédent."
+    if change_pct <= -10:
+        return f"{label} {name} contribue à la baisse du volume récent."
+    if change_pct >= 10:
+        return f"{label} {name} contribue à la hausse du volume récent."
+    return f"{label} {name} reste proche de son niveau précédent."
+
+
+def _forecast_contributors(
+    conn: duckdb.DuckDBPyConnection,
+    target: ForecastTarget,
+    scope_type: ScopeType,
+    scope_value: str | None,
+    current_month: datetime,
+) -> list[dict[str, Any]]:
+    previous_start = _add_months(current_month, -6)
+    recent_start = _add_months(current_month, -3)
+    dimensions = _explanation_dimensions(conn, scope_type)
+    scope_clause, scope_params = _scope_clause(scope_type, scope_value)
+    contributors: list[dict[str, Any]] = []
+
+    for dimension, label, _column, expression in dimensions:
+        if target == "resolution_delay":
+            value_expr = "date_diff('second', created_date, resolved_date) / 86400.0"
+            query = f"""
+                select
+                  {expression} as name,
+                  median(case when resolved_date >= ? and resolved_date < ? then {value_expr} end) as recent_value,
+                  median(case when resolved_date >= ? and resolved_date < ? then {value_expr} end) as previous_value,
+                  count(*) filter (where resolved_date >= ? and resolved_date < ?)::integer as recent_count,
+                  count(*) filter (where resolved_date >= ? and resolved_date < ?)::integer as previous_count
+                from analytics.fct_tickets
+                where created_date is not null
+                  and resolved_date is not null
+                  and resolved_date >= created_date
+                  and resolved_date >= ?
+                  and resolved_date < ?
+                  {scope_clause}
+                group by 1
+            """
+            params: list[Any] = [
+                recent_start,
+                current_month,
+                previous_start,
+                recent_start,
+                recent_start,
+                current_month,
+                previous_start,
+                recent_start,
+                previous_start,
+                current_month,
+                *scope_params,
+            ]
+            metric = "délai médian"
+        else:
+            query = f"""
+                select
+                  {expression} as name,
+                  sum(case when created_date >= ? and created_date < ? then 1 else 0 end)::double as recent_value,
+                  sum(case when created_date >= ? and created_date < ? then 1 else 0 end)::double as previous_value,
+                  sum(case when created_date >= ? and created_date < ? then 1 else 0 end)::integer as recent_count,
+                  sum(case when created_date >= ? and created_date < ? then 1 else 0 end)::integer as previous_count
+                from analytics.fct_tickets
+                where created_date is not null
+                  and created_date >= ?
+                  and created_date < ?
+                  {scope_clause}
+                group by 1
+            """
+            params = [
+                recent_start,
+                current_month,
+                previous_start,
+                recent_start,
+                recent_start,
+                current_month,
+                previous_start,
+                recent_start,
+                previous_start,
+                current_month,
+                *scope_params,
+            ]
+            metric = "tickets créés"
+
+        for name, recent_raw, previous_raw, recent_count, previous_count in conn.execute(query, params).fetchall():
+            recent = float(recent_raw or 0.0)
+            previous = float(previous_raw or 0.0)
+            if recent_count == 0 and previous_count == 0:
+                continue
+            change = _pct_change(recent, previous)
+            rank_value = abs(change) if change is not None else abs(recent - previous)
+            contributor_name = str(name or "Non renseigné")
+            contributors.append(
+                {
+                    "dimension": dimension,
+                    "name": contributor_name,
+                    "metric": metric,
+                    "recentValue": round(recent, 1),
+                    "previousValue": round(previous, 1),
+                    "changePct": round(change, 1) if change is not None else None,
+                    "interpretation": _contributor_interpretation(
+                        target,
+                        label,
+                        contributor_name,
+                        change,
+                        recent,
+                        previous,
+                    ),
+                    "_rank": rank_value,
+                }
+            )
+
+    contributors.sort(key=lambda item: item["_rank"], reverse=True)
+    return [
+        {key: value for key, value in item.items() if key != "_rank"}
+        for item in contributors[:3]
+    ]
+
+
+def _same_month_value(
+    points: list[MonthlyPoint] | list[TicketVolumePoint],
+    forecast_period: str,
+    target: ForecastTarget,
+) -> tuple[datetime, float] | None:
+    month = int(forecast_period[5:7])
+    for point in reversed(points):
+        if point.period.month != month:
+            continue
+        if target == "resolution_delay":
+            return point.period, float(point.median_days)  # type: ignore[attr-defined]
+        return point.period, float(point.ticket_count)  # type: ignore[attr-defined]
+    return None
+
+
+def _history_windows(
+    points: list[MonthlyPoint] | list[TicketVolumePoint],
+    target: ForecastTarget,
+) -> tuple[float | None, float | None]:
+    recent = points[-3:]
+    previous = points[-6:-3]
+    if target == "resolution_delay":
+        return (
+            _mean([float(point.median_days) for point in recent]),  # type: ignore[attr-defined]
+            _mean([float(point.median_days) for point in previous]),  # type: ignore[attr-defined]
+        )
+    return (
+        _mean([float(point.ticket_count) for point in recent]),  # type: ignore[attr-defined]
+        _mean([float(point.ticket_count) for point in previous]),  # type: ignore[attr-defined]
+    )
+
+
+def _confidence_note(reliability: str, mae: float, unit: str) -> str:
+    if reliability in {"Élevée", "Ã‰levÃ©e"}:
+        return f"Lecture fiable : les derniers backtests se trompent en moyenne d'environ {mae:.1f} {unit}."
+    if reliability in {"Modérée", "ModÃ©rÃ©e"}:
+        return f"Lecture à confirmer : l'erreur historique moyenne est d'environ {mae:.1f} {unit}."
+    return f"Lecture prudente : l'historique varie beaucoup, avec une erreur moyenne d'environ {mae:.1f} {unit}."
+
+
+def _build_explanation(
+    *,
+    conn: duckdb.DuckDBPyConnection,
+    target: ForecastTarget,
+    scope_type: ScopeType,
+    scope_value: str | None,
+    current_month: datetime,
+    history: list[MonthlyPoint] | list[TicketVolumePoint],
+    first_forecast: dict[str, Any],
+    summary: dict[str, Any],
+    model: dict[str, Any],
+) -> dict[str, Any]:
+    recent_window, previous_window = _history_windows(history, target)
+    recent_change = _pct_change(recent_window, previous_window)
+    forecast_period = str(first_forecast["period"])
+    if target == "resolution_delay":
+        next_value = float(summary["nextMonthMedianDays"])
+        baseline = float(summary["recentThreeMonthMedianDays"])
+        unit = "jours"
+        short_unit = "j"
+        metric_label = "délai de résolution"
+        mae = float(model["backtestMaeDays"])
+        forecast_key = "predictedMedianDays"
+    else:
+        next_value = float(summary["nextMonthTickets"])
+        baseline = float(summary["recentThreeMonthAverageTickets"])
+        unit = "tickets"
+        short_unit = "tickets"
+        metric_label = "volume de tickets"
+        mae = float(model["backtestMaeTickets"])
+        forecast_key = "predictedTickets"
+
+    forecast_change = _pct_change(next_value, baseline)
+    same_month = _same_month_value(history, forecast_period, target)
+    seasonal_text = "La saisonnalité est moins lisible, faute de comparaison solide sur le même mois."
+    if same_month:
+        same_period, same_value = same_month
+        seasonal_change = _pct_change(float(first_forecast[forecast_key]), same_value)
+        if seasonal_change is not None and abs(seasonal_change) < 8:
+            seasonal_text = (
+                f"La projection colle aussi à la saisonnalité : le même mois observé "
+                f"en {same_period.year} était déjà autour de {same_value:.1f} {short_unit}."
+            )
+        elif seasonal_change is not None and seasonal_change < 0:
+            seasonal_text = (
+                f"Elle est sous le niveau du même mois en {same_period.year} "
+                f"({same_value:.1f} {short_unit}), ce qui renforce le signal de baisse."
+            )
+        elif seasonal_change is not None:
+            seasonal_text = (
+                f"Elle est au-dessus du même mois en {same_period.year} "
+                f"({same_value:.1f} {short_unit}), donc la saisonnalité appelle à rester vigilant."
+            )
+
+    if forecast_change is not None and forecast_change <= -10:
+        movement = "baisse"
+        headline = "La prévision baisse parce que le niveau attendu est nettement sous le rythme récent."
+    elif forecast_change is not None and forecast_change >= 10:
+        movement = "hausse"
+        headline = "La prévision monte parce que le niveau attendu dépasse nettement le rythme récent."
+    else:
+        movement = "stabilisation"
+        headline = "La prévision reste stable parce que le niveau attendu colle au rythme récent."
+
+    if recent_change is None:
+        recent_sentence = "Le trimestre précédent n'est pas assez complet pour mesurer une dynamique récente."
+    elif target == "resolution_delay" and recent_change <= -10:
+        recent_sentence = "Les trois derniers mois montrent déjà un raccourcissement du délai, ce qui pousse la projection vers le bas."
+    elif target == "resolution_delay" and recent_change >= 10:
+        recent_sentence = "Les trois derniers mois se sont allongés par rapport au trimestre précédent, ce qui explique la vigilance du modèle."
+    elif target == "ticket_volume" and recent_change <= -10:
+        recent_sentence = "Les trois derniers mois sont sous le trimestre précédent, ce qui explique une projection plus basse."
+    elif target == "ticket_volume" and recent_change >= 10:
+        recent_sentence = "Les trois derniers mois sont au-dessus du trimestre précédent, ce qui tire la projection vers le haut."
+    else:
+        recent_sentence = "Le rythme des trois derniers mois reste proche du trimestre précédent, donc la projection ne signale pas de rupture."
+
+    paragraphs = [
+        (
+            f"Le signal principal est une {movement} du {metric_label} : le prochain mois est attendu "
+            f"à {next_value:.1f} {short_unit}, contre {baseline:.1f} {short_unit} sur les trois derniers mois complets "
+            f"({_format_pct(forecast_change)}). {recent_sentence}"
+        ),
+        (
+            f"{seasonal_text} Le mois en cours reste indicatif seulement : il est affiché pour contexte, "
+            "mais il n'est pas utilisé pour entraîner la prévision."
+        ),
+    ]
+    evidence = [
+        {
+            "label": "Écart vs référence récente",
+            "value": _format_pct(forecast_change),
+            "meaning": "Compare le mois prévu aux trois derniers mois complets.",
+        },
+        {
+            "label": "Signal des trois derniers mois",
+            "value": _format_pct(recent_change),
+            "meaning": "Compare les trois derniers mois au trimestre précédent.",
+        },
+    ]
+    if same_month:
+        evidence.append(
+            {
+                "label": "Repère saisonnier",
+                "value": f"{same_month[1]:.1f} {short_unit}",
+                "meaning": f"Même mois observé en {same_month[0].year}.",
+            }
+        )
+
+    return {
+        "headline": headline,
+        "paragraphs": paragraphs,
+        "evidence": evidence,
+        "contributors": _forecast_contributors(conn, target, scope_type, scope_value, current_month),
+        "confidenceNote": _confidence_note(str(summary["reliability"]), mae, unit),
+    }
+
+
 def _interval_residuals(selected: CandidateResult, step: int) -> list[float]:
     horizon = 1 if step == 1 else 3 if step <= 3 else 6
     return (
@@ -953,6 +1301,21 @@ def build_forecast(
             }
         )
 
+    summary_payload = {
+        "nextMonthMedianDays": round(next_month, 1),
+        "sixMonthAverageDays": round(float(np.mean(predictions)), 1),
+        "recentThreeMonthMedianDays": round(recent_baseline, 1),
+        "changePct": round(change_pct, 1),
+        "trend": "improving" if change_pct <= -10 else "deteriorating" if change_pct >= 10 else "stable",
+        "businessInsight": _business_summary(change_pct),
+        "reliability": _reliability(selected.mae, recent_baseline),
+    }
+    model_payload = _model_payload(
+        selected,
+        series,
+        {"resolvedTickets": resolved_tickets},
+        "backtestMaeDays",
+    )
     response = {
         "scope": {"type": scope_type, "value": scope_value},
         "historical": [
@@ -973,22 +1336,21 @@ def build_forecast(
             else None
         ),
         "forecast": forecasts,
-        "summary": {
-            "nextMonthMedianDays": round(next_month, 1),
-            "sixMonthAverageDays": round(float(np.mean(predictions)), 1),
-            "recentThreeMonthMedianDays": round(recent_baseline, 1),
-            "changePct": round(change_pct, 1),
-            "trend": "improving" if change_pct <= -10 else "deteriorating" if change_pct >= 10 else "stable",
-            "businessInsight": _business_summary(change_pct),
-            "reliability": _reliability(selected.mae, recent_baseline),
-        },
-        "model": _model_payload(
-            selected,
-            series,
-            {"resolvedTickets": resolved_tickets},
-            "backtestMaeDays",
-        ),
+        "summary": summary_payload,
+        "model": model_payload,
     }
+    with duckdb.connect(str(warehouse_path), read_only=True) as conn:
+        response["explanation"] = _build_explanation(
+            conn=conn,
+            target=target,
+            scope_type=scope_type,
+            scope_value=scope_value,
+            current_month=current_month,
+            history=history,
+            first_forecast=forecasts[0],
+            summary=summary_payload,
+            model=model_payload,
+        )
     with _cache_lock:
         stale_keys = [key for key in _forecast_cache if key[0] != stat.st_mtime_ns]
         for key in stale_keys:
@@ -1077,6 +1439,16 @@ def build_ticket_volume_forecast(
             }
         )
 
+    summary_payload = {
+        "nextMonthTickets": max(0, int(round(next_month))),
+        "sixMonthAverageTickets": round(float(np.mean(predictions)), 1),
+        "recentThreeMonthAverageTickets": round(recent_baseline, 1),
+        "changePct": round(change_pct, 1),
+        "trend": "decreasing" if change_pct <= -10 else "increasing" if change_pct >= 10 else "stable",
+        "businessInsight": _ticket_volume_business_summary(change_pct),
+        "reliability": _reliability(selected.mae, recent_baseline),
+    }
+    model_payload = _model_payload(selected, series, {"tickets": tickets}, "backtestMaeTickets")
     response = {
         "scope": {"type": scope_type, "value": scope_value},
         "historical": [
@@ -1095,17 +1467,21 @@ def build_ticket_volume_forecast(
             else None
         ),
         "forecast": forecasts,
-        "summary": {
-            "nextMonthTickets": max(0, int(round(next_month))),
-            "sixMonthAverageTickets": round(float(np.mean(predictions)), 1),
-            "recentThreeMonthAverageTickets": round(recent_baseline, 1),
-            "changePct": round(change_pct, 1),
-            "trend": "decreasing" if change_pct <= -10 else "increasing" if change_pct >= 10 else "stable",
-            "businessInsight": _ticket_volume_business_summary(change_pct),
-            "reliability": _reliability(selected.mae, recent_baseline),
-        },
-        "model": _model_payload(selected, series, {"tickets": tickets}, "backtestMaeTickets"),
+        "summary": summary_payload,
+        "model": model_payload,
     }
+    with duckdb.connect(str(warehouse_path), read_only=True) as conn:
+        response["explanation"] = _build_explanation(
+            conn=conn,
+            target=target,
+            scope_type=scope_type,
+            scope_value=scope_value,
+            current_month=current_month,
+            history=history,
+            first_forecast=forecasts[0],
+            summary=summary_payload,
+            model=model_payload,
+        )
     with _cache_lock:
         stale_keys = [key for key in _forecast_cache if key[0] != stat.st_mtime_ns]
         for key in stale_keys:

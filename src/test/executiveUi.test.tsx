@@ -72,6 +72,32 @@ const prediction = {
     historyMonths: 41,
     resolvedTickets: 4100,
   },
+  explanation: {
+    headline: 'La prévision reste stable parce que le niveau attendu colle au rythme récent.',
+    paragraphs: [
+      'Le signal principal est une stabilisation du délai de résolution : le prochain mois est attendu à 24 j, contre 25 j sur les trois derniers mois complets.',
+      "Le mois en cours reste indicatif seulement : il est affiché pour contexte, mais il n'est pas utilisé pour entraîner la prévision.",
+    ],
+    evidence: [
+      {
+        label: 'Écart vs référence récente',
+        value: '-4.0%',
+        meaning: 'Compare le mois prévu aux trois derniers mois complets.',
+      },
+    ],
+    contributors: [
+      {
+        dimension: 'project' as const,
+        name: 'Projet A',
+        metric: 'délai médian',
+        recentValue: 24,
+        previousValue: 28,
+        changePct: -14.3,
+        interpretation: 'Projet Projet A tire le délai récent vers le bas.',
+      },
+    ],
+    confidenceNote: "Lecture fiable : les derniers backtests se trompent en moyenne d'environ 3.2 jours.",
+  },
 };
 
 const volumePrediction = {
@@ -103,6 +129,32 @@ const volumePrediction = {
     trainingEnd: '2026-05-01',
     historyMonths: 41,
     tickets: 5200,
+  },
+  explanation: {
+    headline: 'La prévision reste stable parce que le niveau attendu colle au rythme récent.',
+    paragraphs: [
+      'Le signal principal est une stabilisation du volume de tickets : le prochain mois est attendu à 92 tickets, contre 88 tickets sur les trois derniers mois complets.',
+      "Le mois en cours reste indicatif seulement : il est affiché pour contexte, mais il n'est pas utilisé pour entraîner la prévision.",
+    ],
+    evidence: [
+      {
+        label: 'Signal des trois derniers mois',
+        value: '+4.5%',
+        meaning: 'Compare les trois derniers mois au trimestre précédent.',
+      },
+    ],
+    contributors: [
+      {
+        dimension: 'team' as const,
+        name: 'RUN',
+        metric: 'tickets créés',
+        recentValue: 92,
+        previousValue: 86,
+        changePct: 7,
+        interpretation: 'Équipe RUN reste proche de son niveau précédent.',
+      },
+    ],
+    confidenceNote: "Lecture à confirmer : l'erreur historique moyenne est d'environ 8.4 tickets.",
   },
 };
 
@@ -145,7 +197,8 @@ describe('executive interface', () => {
     expect(screen.getByText('Dictionnaire de prévision')).toBeInTheDocument();
     expect(screen.getByText('Valeur du mois prochain')).toBeInTheDocument();
     expect(screen.getAllByText('Pourquoi cette prévision ?')).toHaveLength(2);
-    expect(screen.getAllByText(/Le prochain mois est estim/i)).toHaveLength(2);
+    expect(screen.getAllByText('Moteurs observés')).toHaveLength(2);
+    expect(screen.getAllByText(/Le signal principal/i)).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: 'Projet' }));
     fireEvent.change(await screen.findByLabelText('Choisir un projet'), {
@@ -204,8 +257,8 @@ describe('executive interface', () => {
             textSimilarity: 0.7,
             numDistance: 2,
             combinedScore: 0.82,
-            similarities: ['Projet: A'],
-            differences: ['Projet: A != B'],
+            similarities: ['Sujet / description: similarité textuelle 70%', 'Client: VIP', 'CMS / Framework: Drupal'],
+            differences: [],
             rank: 1,
           },
         ]}
@@ -218,8 +271,9 @@ describe('executive interface', () => {
     expect(screen.getByText('Description')).toBeInTheDocument();
     expect(screen.getByText('Distance numérique')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /#101/i }));
-    expect(screen.getByText('Similarités')).toBeInTheDocument();
-    expect(screen.getByText(/Analyse textuelle : sujet et description/i)).toBeInTheDocument();
+    expect(screen.getByText('Pourquoi ce ticket est similaire')).toBeInTheDocument();
+    expect(screen.getByText('CMS / Framework: Drupal')).toBeInTheDocument();
+    expect(screen.queryByText('Différences')).not.toBeInTheDocument();
     expect(screen.getByText('Projet: A')).toBeInTheDocument();
   });
 });

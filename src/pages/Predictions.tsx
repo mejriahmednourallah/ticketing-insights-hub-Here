@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, CalendarRange, Gauge, Sparkles, Tickets } from 'lucide-react';
 import {
+  ForecastExplanation as ForecastExplanationPayload,
   PredictionOption,
   PredictionOptionsResponse,
   PredictionScopeType,
@@ -171,22 +172,71 @@ function seasonalComparison(
   return `Par rapport au même mois observé dans l'historique (${monthLabel(previous.period)} : ${previousValue.toLocaleString('fr-FR')}${unit}), la projection est ${direction} (${change > 0 ? '+' : ''}${change.toFixed(1)}%).`;
 }
 
-function ForecastExplanation({ title, points }: {
+function fallbackExplanation(title: string, points: string[]): ForecastExplanationPayload {
+  return {
+    headline: title,
+    paragraphs: points,
+    evidence: [],
+    contributors: [],
+    confidenceNote: '',
+  };
+}
+
+function formatContributorValue(value: number, metric: string) {
+  const formatted = value.toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+  return metric.includes('délai') ? `${formatted} j` : formatted;
+}
+
+function ForecastExplanation({ title, explanation }: {
   title: string;
-  points: string[];
+  explanation: ForecastExplanationPayload;
 }) {
   return (
     <section className="executive-card border-teal-100 bg-teal-50/60 p-5">
       <p className="section-kicker">Pourquoi cette prévision ?</p>
       <h2 className="mt-1 text-lg font-bold text-slate-950">{title}</h2>
-      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-        {points.map(point => (
-          <li key={point} className="flex gap-2">
-            <Sparkles className="mt-1 h-4 w-4 shrink-0 text-teal-700" />
-            <span>{point}</span>
-          </li>
+      <p className="mt-3 text-base font-bold leading-7 text-slate-950">{explanation.headline}</p>
+      <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+        {explanation.paragraphs.map(paragraph => (
+          <p key={paragraph}>{paragraph}</p>
         ))}
-      </ul>
+      </div>
+      {explanation.evidence.length > 0 && (
+        <dl className="mt-4 grid gap-3 md:grid-cols-3">
+          {explanation.evidence.map(item => (
+            <div key={item.label} className="rounded-lg border border-teal-100 bg-white/80 p-3">
+              <dt className="text-xs font-semibold uppercase text-teal-700">{item.label}</dt>
+              <dd className="mt-1 text-lg font-bold text-slate-950">{item.value}</dd>
+              <dd className="mt-1 text-xs leading-5 text-slate-500">{item.meaning}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {explanation.contributors.length > 0 && (
+        <div className="mt-4 rounded-xl border border-teal-100 bg-white/80 p-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-teal-700" />
+            <h3 className="text-sm font-bold text-slate-950">Moteurs observés</h3>
+          </div>
+          <ul className="mt-3 space-y-3">
+            {explanation.contributors.map(contributor => (
+              <li key={`${contributor.dimension}-${contributor.name}`} className="text-sm leading-6 text-slate-700">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-900">{contributor.name}</span>
+                  <span className="rounded-full bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-800">
+                    {formatContributorValue(contributor.previousValue, contributor.metric)} → {formatContributorValue(contributor.recentValue, contributor.metric)}
+                    {contributor.changePct !== null ? ` (${contributor.changePct > 0 ? '+' : ''}${contributor.changePct}%)` : ''}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{contributor.interpretation}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {explanation.confidenceNote && (
+        <p className="mt-4 text-xs leading-5 text-slate-500">{explanation.confidenceNote}</p>
+      )}
     </section>
   );
 }
@@ -321,10 +371,11 @@ export default function Predictions() {
     return [...history, ...forecast];
   }, [volumePrediction]);
 
-  const delayExplanationPoints = useMemo(() => {
-    if (!delayPrediction) return [];
+  const delayExplanation = useMemo(() => {
+    if (!delayPrediction) return null;
+    if (delayPrediction.explanation) return delayPrediction.explanation;
     const firstForecast = delayPrediction.forecast[0];
-    return [
+    return fallbackExplanation('Délai médian de résolution', [
       `Le prochain mois est estimé à ${delayPrediction.summary.nextMonthMedianDays} jours contre ${delayPrediction.summary.recentThreeMonthMedianDays} jours sur les trois derniers mois complets (${delayPrediction.summary.changePct > 0 ? '+' : ''}${delayPrediction.summary.changePct}%).`,
       firstForecast
         ? seasonalComparison(
@@ -337,13 +388,14 @@ export default function Predictions() {
         : "Le modèle n'a pas assez de points futurs pour comparer la saisonnalité.",
       `Le modèle retenu est ${delayPrediction.model.name}, choisi après backtest sur ${delayPrediction.model.historyMonths} mois et ${delayPrediction.model.resolvedTickets.toLocaleString('fr-FR')} tickets résolus.`,
       `Erreur de backtest : ${delayPrediction.model.backtestMaeDays} jours. Le mois en cours est affiché pour contexte mais exclu de l'entraînement car il n'est pas terminé.`,
-    ];
+    ]);
   }, [delayPrediction]);
 
-  const volumeExplanationPoints = useMemo(() => {
-    if (!volumePrediction) return [];
+  const volumeExplanation = useMemo(() => {
+    if (!volumePrediction) return null;
+    if (volumePrediction.explanation) return volumePrediction.explanation;
     const firstForecast = volumePrediction.forecast[0];
-    return [
+    return fallbackExplanation('Volume de nouveaux tickets', [
       `Le prochain mois est estimé à ${volumePrediction.summary.nextMonthTickets.toLocaleString('fr-FR')} tickets contre ${volumePrediction.summary.recentThreeMonthAverageTickets.toLocaleString('fr-FR')} tickets/mois récemment (${volumePrediction.summary.changePct > 0 ? '+' : ''}${volumePrediction.summary.changePct}%).`,
       firstForecast
         ? seasonalComparison(
@@ -356,7 +408,7 @@ export default function Predictions() {
         : "Le modèle n'a pas assez de points futurs pour comparer la saisonnalité.",
       `Le modèle retenu est ${volumePrediction.model.name}, choisi après backtest sur ${volumePrediction.model.historyMonths} mois et ${volumePrediction.model.tickets.toLocaleString('fr-FR')} tickets créés.`,
       `Erreur de backtest : ${volumePrediction.model.backtestMaeTickets} tickets. Le mois en cours est affiché pour contexte mais exclu de l'entraînement car il n'est pas terminé.`,
-    ];
+    ]);
   }, [volumePrediction]);
 
   const delayTrendIcon = delayPrediction?.summary.trend === 'improving'
@@ -471,7 +523,7 @@ export default function Predictions() {
 
               <ForecastExplanation
                 title="Délai médian de résolution"
-                points={delayExplanationPoints}
+                explanation={delayExplanation!}
               />
 
               <section className="grid gap-6 xl:grid-cols-[1.6fr_0.8fr]">
@@ -548,7 +600,7 @@ export default function Predictions() {
 
               <ForecastExplanation
                 title="Volume de nouveaux tickets"
-                points={volumeExplanationPoints}
+                explanation={volumeExplanation!}
               />
 
               <section className="grid gap-6 xl:grid-cols-[1.6fr_0.8fr]">
