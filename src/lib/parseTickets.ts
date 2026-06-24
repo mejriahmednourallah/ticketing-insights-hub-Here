@@ -5,6 +5,7 @@ export interface Ticket {
   status: string;
   priority: string;
   subject: string;
+  description?: string;
   author: string;
   assignee: string;
   createdDate: Date | null;
@@ -98,6 +99,7 @@ export function parseCSV(text: string): Ticket[] {
   const iStatut = colIndex('status', 'Statut');
   const iPrio = colIndex('priority', 'Priorité', 'Priorite');
   const iSujet = colIndex('sujet', 'subject');
+  const iDescription = colIndex('description', 'desc');
   const iAuteur = colIndex('auteur', 'author');
   const iAssigne = colIndex('assigne_a', 'Assigné à', 'Assigne a', 'assignee');
   const iCree = colIndex('created_date', 'Créé', 'Cree', 'created_at');
@@ -136,6 +138,7 @@ export function parseCSV(text: string): Ticket[] {
       status: valueAt(cols, iStatut),
       priority: valueAt(cols, iPrio),
       subject: valueAt(cols, iSujet),
+      description: valueAt(cols, iDescription),
       author: valueAt(cols, iAuteur),
       assignee: valueAt(cols, iAssigne),
       createdDate,

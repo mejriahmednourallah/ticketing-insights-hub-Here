@@ -56,6 +56,10 @@ const diagnosticDictionary = [
     term: 'Rang',
     definition: 'Position du ticket après tri du plus proche au moins proche.',
   },
+  {
+    term: 'Description',
+    definition: 'Le texte long du ticket est utilisé avec le sujet pour repérer les cas vraiment comparables.',
+  },
 ];
 
 export default function SimilarityResultsSheet({
@@ -226,6 +230,9 @@ export default function SimilarityResultsSheet({
                         Ouvrir le ticket dans Redmine
                         <ExternalLink className="h-3.5 w-3.5" />
                       </a>
+                      <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium leading-5 text-emerald-800">
+                        Analyse textuelle : sujet et description du ticket, complétés par le type, le tracker et le projet.
+                      </p>
 
                       <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2">
                         <div>

@@ -150,6 +150,47 @@ function ForecastDictionary() {
   );
 }
 
+function seasonalComparison(
+  historical: Array<{ period: string } & Record<string, string | number>>,
+  forecastPeriod: string,
+  forecastValue: number,
+  valueKey: string,
+  unit: string,
+) {
+  const month = String(forecastPeriod).slice(5, 7);
+  const previous = [...historical].reverse().find(point => String(point.period).slice(5, 7) === month);
+  if (!previous) {
+    return "Pas assez d'historique sur le même mois pour isoler une saisonnalité fiable.";
+  }
+  const previousValue = Number(previous[valueKey]);
+  if (!Number.isFinite(previousValue) || previousValue === 0) {
+    return "La comparaison saisonnière existe, mais la base passée est trop faible pour être interprétée.";
+  }
+  const change = ((forecastValue - previousValue) / previousValue) * 100;
+  const direction = change <= -5 ? 'en dessous' : change >= 5 ? 'au-dessus' : 'proche';
+  return `Par rapport au même mois observé dans l'historique (${monthLabel(previous.period)} : ${previousValue.toLocaleString('fr-FR')}${unit}), la projection est ${direction} (${change > 0 ? '+' : ''}${change.toFixed(1)}%).`;
+}
+
+function ForecastExplanation({ title, points }: {
+  title: string;
+  points: string[];
+}) {
+  return (
+    <section className="executive-card border-teal-100 bg-teal-50/60 p-5">
+      <p className="section-kicker">Pourquoi cette prévision ?</p>
+      <h2 className="mt-1 text-lg font-bold text-slate-950">{title}</h2>
+      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+        {points.map(point => (
+          <li key={point} className="flex gap-2">
+            <Sparkles className="mt-1 h-4 w-4 shrink-0 text-teal-700" />
+            <span>{point}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function ForecastChart({ data, unit, rangeLabel }: {
   data: Array<Record<string, unknown>>;
   unit: string;
@@ -280,6 +321,44 @@ export default function Predictions() {
     return [...history, ...forecast];
   }, [volumePrediction]);
 
+  const delayExplanationPoints = useMemo(() => {
+    if (!delayPrediction) return [];
+    const firstForecast = delayPrediction.forecast[0];
+    return [
+      `Le prochain mois est estimé à ${delayPrediction.summary.nextMonthMedianDays} jours contre ${delayPrediction.summary.recentThreeMonthMedianDays} jours sur les trois derniers mois complets (${delayPrediction.summary.changePct > 0 ? '+' : ''}${delayPrediction.summary.changePct}%).`,
+      firstForecast
+        ? seasonalComparison(
+            delayPrediction.historical,
+            firstForecast.period,
+            firstForecast.predictedMedianDays,
+            'medianDays',
+            ' j',
+          )
+        : "Le modèle n'a pas assez de points futurs pour comparer la saisonnalité.",
+      `Le modèle retenu est ${delayPrediction.model.name}, choisi après backtest sur ${delayPrediction.model.historyMonths} mois et ${delayPrediction.model.resolvedTickets.toLocaleString('fr-FR')} tickets résolus.`,
+      `Erreur de backtest : ${delayPrediction.model.backtestMaeDays} jours. Le mois en cours est affiché pour contexte mais exclu de l'entraînement car il n'est pas terminé.`,
+    ];
+  }, [delayPrediction]);
+
+  const volumeExplanationPoints = useMemo(() => {
+    if (!volumePrediction) return [];
+    const firstForecast = volumePrediction.forecast[0];
+    return [
+      `Le prochain mois est estimé à ${volumePrediction.summary.nextMonthTickets.toLocaleString('fr-FR')} tickets contre ${volumePrediction.summary.recentThreeMonthAverageTickets.toLocaleString('fr-FR')} tickets/mois récemment (${volumePrediction.summary.changePct > 0 ? '+' : ''}${volumePrediction.summary.changePct}%).`,
+      firstForecast
+        ? seasonalComparison(
+            volumePrediction.historical,
+            firstForecast.period,
+            firstForecast.predictedTickets,
+            'ticketCount',
+            ' tickets',
+          )
+        : "Le modèle n'a pas assez de points futurs pour comparer la saisonnalité.",
+      `Le modèle retenu est ${volumePrediction.model.name}, choisi après backtest sur ${volumePrediction.model.historyMonths} mois et ${volumePrediction.model.tickets.toLocaleString('fr-FR')} tickets créés.`,
+      `Erreur de backtest : ${volumePrediction.model.backtestMaeTickets} tickets. Le mois en cours est affiché pour contexte mais exclu de l'entraînement car il n'est pas terminé.`,
+    ];
+  }, [volumePrediction]);
+
   const delayTrendIcon = delayPrediction?.summary.trend === 'improving'
     ? ArrowDownRight
     : delayPrediction?.summary.trend === 'deteriorating'
@@ -390,6 +469,11 @@ export default function Predictions() {
                 />
               </section>
 
+              <ForecastExplanation
+                title="Délai médian de résolution"
+                points={delayExplanationPoints}
+              />
+
               <section className="grid gap-6 xl:grid-cols-[1.6fr_0.8fr]">
                 <div className="executive-card p-5 md:p-6">
                   <div className="mb-5">
@@ -461,6 +545,11 @@ export default function Predictions() {
                   tone="slate"
                 />
               </section>
+
+              <ForecastExplanation
+                title="Volume de nouveaux tickets"
+                points={volumeExplanationPoints}
+              />
 
               <section className="grid gap-6 xl:grid-cols-[1.6fr_0.8fr]">
                 <div className="executive-card p-5 md:p-6">

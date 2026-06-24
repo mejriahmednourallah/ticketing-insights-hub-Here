@@ -114,7 +114,7 @@ export interface SimilarityCache {
   numerals: number[][];
 }
 
-const textField = (t: Ticket) => `${t.subject} ${t.type} ${t.tracker} ${t.project}`;
+const textField = (t: Ticket) => `${t.subject} ${t.description ?? ''} ${t.type} ${t.tracker} ${t.project}`;
 
 /** Pre-compute tokenized texts, IDF model, TF-IDF vectors and numerical vectors once. */
 export function buildSimilarityCache(tickets: Ticket[]): SimilarityCache {
@@ -201,7 +201,7 @@ export function computeHeatmapMatrix(tickets: Ticket[]): { ids: string[]; matrix
   const n = subset.length;
   if (n < 2) return { ids: subset.map(t => t.id), matrix: subset.map(() => [1]) };
 
-  const textField = (t: Ticket) => `${t.subject} ${t.type} ${t.tracker} ${t.project}`;
+  const textField = (t: Ticket) => `${t.subject} ${t.description ?? ''} ${t.type} ${t.tracker} ${t.project}`;
   const tokenized = subset.map(t => tokenize(textField(t)));
   const model = buildIdf(tokenized);
   const vectors = tokenized.map(tok => tfidfVector(tok, model));

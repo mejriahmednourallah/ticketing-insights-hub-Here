@@ -144,6 +144,8 @@ describe('executive interface', () => {
 
     expect(screen.getByText('Dictionnaire de prévision')).toBeInTheDocument();
     expect(screen.getByText('Valeur du mois prochain')).toBeInTheDocument();
+    expect(screen.getAllByText('Pourquoi cette prévision ?')).toHaveLength(2);
+    expect(screen.getAllByText(/Le prochain mois est estim/i)).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: 'Projet' }));
     fireEvent.change(await screen.findByLabelText('Choisir un projet'), {
@@ -213,9 +215,11 @@ describe('executive interface', () => {
     expect(screen.getByText('Dictionnaire du diagnostic')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Dictionnaire du diagnostic/i }));
     expect(screen.getByText('Score textuel')).toBeInTheDocument();
+    expect(screen.getByText('Description')).toBeInTheDocument();
     expect(screen.getByText('Distance numérique')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /#101/i }));
     expect(screen.getByText('Similarités')).toBeInTheDocument();
+    expect(screen.getByText(/Analyse textuelle : sujet et description/i)).toBeInTheDocument();
     expect(screen.getByText('Projet: A')).toBeInTheDocument();
   });
 });

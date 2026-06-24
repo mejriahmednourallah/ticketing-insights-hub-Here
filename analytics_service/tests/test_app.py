@@ -78,6 +78,7 @@ def create_dashboard_warehouse(path: Path) -> None:
               project_name varchar,
               priority varchar,
               subject varchar,
+              description varchar,
               team varchar,
               source varchar,
               status varchar,
@@ -92,7 +93,8 @@ def create_dashboard_warehouse(path: Path) -> None:
               technology varchar,
               tracker varchar,
               closed_date timestamp,
-              resolved_date timestamp
+              resolved_date timestamp,
+              age_hours double
             )
             """
         )
@@ -102,6 +104,7 @@ def create_dashboard_warehouse(path: Path) -> None:
                 "Projet A",
                 "Normale",
                 "Ticket valide",
+                "erreur paiement mobile panier commande",
                 "RUN",
                 "Client",
                 "Clos",
@@ -117,12 +120,14 @@ def create_dashboard_warehouse(path: Path) -> None:
                 "Bug",
                 datetime(2026, 1, 6),
                 datetime(2026, 1, 11),
+                240.0,
             ),
             (
                 2,
                 "Projet A",
                 "Normale",
                 "Resolved invalide",
+                "demande contenu page actualite",
                 "RUN",
                 "Client",
                 "Clos",
@@ -138,12 +143,14 @@ def create_dashboard_warehouse(path: Path) -> None:
                 "Bug",
                 datetime(2026, 1, 3),
                 datetime(23, 9, 1),
+                240.0,
             ),
             (
                 3,
                 "Projet A",
                 "Normale",
                 "Closed invalide",
+                "erreur paiement mobile panier commande bloque",
                 "RUN",
                 "Client",
                 "Clos",
@@ -159,10 +166,11 @@ def create_dashboard_warehouse(path: Path) -> None:
                 "Bug",
                 datetime(2025, 1, 1),
                 datetime(2026, 1, 15),
+                120.0,
             ),
         ]
         conn.executemany(
-            "insert into analytics.fct_tickets values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into analytics.fct_tickets values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
 
@@ -199,6 +207,8 @@ async def test_similarity_returns_similarities_and_differences(monkeypatch, tmp_
 
     assert response.status_code == 200
     result = response.json()["results"][0]
+    assert result["idB"] == "3"
+    assert result["textSimilarity"] > 0
     assert "Projet: Projet A" in result["similarities"]
     assert "Priorite: Normale" in result["similarities"]
     assert isinstance(result["differences"], list)

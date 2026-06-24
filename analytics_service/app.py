@@ -526,7 +526,7 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
         candidates = rows(
             conn,
             f"""
-            select id, subject, type, tracker, project_name, status, priority, team,
+            select id, subject, description, type, tracker, project_name, status, priority, team,
                    created_year, created_month, age_hours
             from {FACT}{where}
             """,
@@ -537,7 +537,10 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Reference ticket not found in filtered data")
 
     def text(item: dict[str, Any]) -> str:
-        return " ".join(str(item.get(key) or "") for key in ("subject", "type", "tracker", "project_name"))
+        return " ".join(
+            str(item.get(key) or "")
+            for key in ("subject", "description", "type", "tracker", "project_name")
+        )
 
     ref_vector = Counter(tokenize(text(reference)))
     scored: list[dict[str, Any]] = []
