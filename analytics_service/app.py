@@ -601,8 +601,13 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
     def text(item: dict[str, Any]) -> str:
         return " ".join(
             str(item.get(key) or "")
-            for key in ("subject", "description", "project_name", "technology", "segment_client")
+            for key in ("subject", "description", "project_name", "technology")
         )
+
+    def same_populated(left: dict[str, Any], right: dict[str, Any], key: str) -> bool:
+        left_value = left.get(key) or NOT_PROVIDED
+        right_value = right.get(key) or NOT_PROVIDED
+        return left_value != NOT_PROVIDED and left_value == right_value
 
     ref_vector = Counter(tokenize(text(reference)))
     scored: list[dict[str, Any]] = []
@@ -616,22 +621,36 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
             + (float(reference.get("age_hours") or 0) - float(item.get("age_hours") or 0)) ** 2
         )
         distances.append(distance)
-        scored.append({"ticket": item, "textSimilarity": cosine(ref_vector, Counter(tokenize(text(item)))), "numDistance": distance})
+        text_similarity = cosine(ref_vector, Counter(tokenize(text(item))))
+        structured_boost = 0.0
+        if same_populated(reference, item, "project_name"):
+            structured_boost += 0.08
+        if same_populated(reference, item, "technology"):
+            structured_boost += 0.07
+        scored.append({
+            "ticket": item,
+            "textSimilarity": text_similarity,
+            "numDistance": distance,
+            "structuredBoost": structured_boost,
+        })
 
     max_distance = max(distances, default=1.0) or 1.0
     for item in scored:
-        item["combinedScore"] = 0.7 * item["textSimilarity"] + 0.3 * (1 - item["numDistance"] / max_distance)
+        num_similarity = 1 - item["numDistance"] / max_distance
+        item["combinedScore"] = min(
+            1.0,
+            0.72 * item["textSimilarity"] + 0.13 * num_similarity + item["structuredBoost"],
+        )
     scored.sort(key=lambda item: item["combinedScore"], reverse=True)
 
     output = []
     for rank, item in enumerate(scored[: request.topN], start=1):
         ticket = item["ticket"]
-        similarities = [f"Sujet / description: similarité textuelle {round(item['textSimilarity'] * 100)}%"]
-        for label, key in (("Projet", "project_name"), ("Client", "segment_client"), ("CMS / Framework", "technology")):
-            reference_value = reference.get(key) or NOT_PROVIDED
-            ticket_value = ticket.get(key) or NOT_PROVIDED
-            if reference_value != NOT_PROVIDED and reference_value == ticket_value:
-                similarities.append(f"{label}: {reference_value}")
+        similarities = [f"Sujet: similarité texte sujet/description {round(item['textSimilarity'] * 100)}%"]
+        if same_populated(reference, ticket, "project_name"):
+            similarities.append(f"Client: même client - {reference.get('project_name')}")
+        if same_populated(reference, ticket, "technology"):
+            similarities.append(f"CMS: même CMS - {reference.get('technology')}")
         output.append({
             "idA": str(ticket_id),
             "idB": str(ticket["id"]),

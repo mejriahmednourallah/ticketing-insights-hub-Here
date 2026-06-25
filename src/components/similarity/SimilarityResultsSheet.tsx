@@ -42,7 +42,7 @@ const diagnosticDictionary = [
   },
   {
     term: 'Score textuel',
-    definition: 'Mots communs entre le sujet, la description, le projet, le client et le CMS du ticket de référence.',
+    definition: 'Mots communs entre le sujet et la description, avec un bonus quand le client ou le CMS est le même.',
   },
   {
     term: 'Distance numérique',
@@ -228,7 +228,7 @@ export default function SimilarityResultsSheet({
                       </a>
                       <div className="mt-3 border-t pt-3">
                         <div>
-                          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Pourquoi ce ticket est similaire</p>
+                          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Similarité</p>
                           {similarities.length > 0 ? (
                             <ul className="space-y-1">
                               {similarities.map((item, i) => (

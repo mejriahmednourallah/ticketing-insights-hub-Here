@@ -126,7 +126,7 @@ def create_dashboard_warehouse(path: Path) -> None:
             ),
             (
                 2,
-                "Projet A",
+                "Projet B",
                 "Normale",
                 "Resolved invalide",
                 "demande contenu page actualite",
@@ -213,11 +213,13 @@ async def test_similarity_returns_similarity_reasons(monkeypatch, tmp_path: Path
     result = response.json()["results"][0]
     assert result["idB"] == "3"
     assert result["textSimilarity"] > 0
-    assert any(item.startswith("Sujet / description:") for item in result["similarities"])
-    assert "Projet: Projet A" in result["similarities"]
-    assert "Client: Client A" in result["similarities"]
-    assert "CMS / Framework: Drupal" in result["similarities"]
+    assert any(item.startswith("Sujet:") for item in result["similarities"])
+    assert "Client: même client - Projet A" in result["similarities"]
+    assert "CMS: même CMS - Drupal" in result["similarities"]
     assert result["differences"] == []
+    second = response.json()["results"][1]
+    assert "CMS: même CMS - Drupal" in second["similarities"]
+    assert not any(item.startswith("Client:") for item in second["similarities"])
 
 
 @pytest.mark.anyio

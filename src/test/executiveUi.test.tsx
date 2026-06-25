@@ -189,16 +189,14 @@ describe('executive interface', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('Délai attendu le mois prochain')).toBeInTheDocument();
+    expect(await screen.findByText('Délai prévu')).toBeInTheDocument();
     expect(screen.getByText('24 j')).toBeInTheDocument();
-    expect(screen.getByText('Tickets attendus le mois prochain')).toBeInTheDocument();
-    expect(screen.getByText('Prévision mensuelle des tickets')).toBeInTheDocument();
-
-    expect(screen.getByText('Dictionnaire de prévision')).toBeInTheDocument();
-    expect(screen.getByText('Valeur du mois prochain')).toBeInTheDocument();
+    expect(screen.getByText('Tickets prévus')).toBeInTheDocument();
+    expect(screen.getByText('Tendance tickets')).toBeInTheDocument();
     expect(screen.getAllByText('Pourquoi cette prévision ?')).toHaveLength(2);
-    expect(screen.getAllByText('Moteurs observés')).toHaveLength(2);
-    expect(screen.getAllByText(/Le signal principal/i)).toHaveLength(2);
+    expect(screen.getAllByText('Interprétation')).toHaveLength(2);
+    expect(screen.getAllByText(/La lecture métier/i)).toHaveLength(2);
+    expect(screen.getAllByText(/Testée sur les anciens mois/i)).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: 'Projet' }));
     fireEvent.change(await screen.findByLabelText('Choisir un projet'), {
@@ -257,7 +255,7 @@ describe('executive interface', () => {
             textSimilarity: 0.7,
             numDistance: 2,
             combinedScore: 0.82,
-            similarities: ['Sujet / description: similarité textuelle 70%', 'Client: VIP', 'CMS / Framework: Drupal'],
+            similarities: ['Sujet: similarité texte sujet/description 70%', 'Client: même client - Fatales', 'CMS: même CMS - Drupal'],
             differences: [],
             rank: 1,
           },
@@ -271,9 +269,10 @@ describe('executive interface', () => {
     expect(screen.getByText('Description')).toBeInTheDocument();
     expect(screen.getByText('Distance numérique')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /#101/i }));
-    expect(screen.getByText('Pourquoi ce ticket est similaire')).toBeInTheDocument();
-    expect(screen.getByText('CMS / Framework: Drupal')).toBeInTheDocument();
+    expect(screen.getByText('Similarité')).toBeInTheDocument();
+    expect(screen.getByText('Client: même client - Fatales')).toBeInTheDocument();
+    expect(screen.getByText('CMS: même CMS - Drupal')).toBeInTheDocument();
     expect(screen.queryByText('Différences')).not.toBeInTheDocument();
-    expect(screen.getByText('Projet: A')).toBeInTheDocument();
+    expect(screen.queryByText('Projet: A')).not.toBeInTheDocument();
   });
 });

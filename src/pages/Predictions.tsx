@@ -10,9 +10,17 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, CalendarRange, Gauge, Sparkles, Tickets } from 'lucide-react';
 import {
-  ForecastExplanation as ForecastExplanationPayload,
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowRight,
+  ArrowUpRight,
+  CalendarRange,
+  Gauge,
+  Sparkles,
+  Tickets,
+} from 'lucide-react';
+import {
   PredictionOption,
   PredictionOptionsResponse,
   PredictionScopeType,
@@ -34,6 +42,20 @@ const EMPTY_OPTIONS: PredictionOptionsResponse = {
   horizonMonths: 6,
 };
 
+type ForecastChartRow = {
+  period: string;
+  label: string;
+  observed?: number;
+  predicted?: number;
+  range?: [number, number];
+};
+
+type ForecastNarrative = {
+  title: string;
+  interpretation: string;
+  why: string[];
+};
+
 const monthLabel = (value: string | null | undefined) => {
   if (!value) return 'Mois inconnu';
   const match = String(value).match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
@@ -44,6 +66,20 @@ const monthLabel = (value: string | null | undefined) => {
   return new Intl.DateTimeFormat('fr-FR', {
     month: 'short',
     year: '2-digit',
+    timeZone: 'UTC',
+  }).format(date);
+};
+
+const longMonthLabel = (value: string | null | undefined) => {
+  if (!value) return 'date inconnue';
+  const match = String(value).match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+  const date = match
+    ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3] ?? '1')))
+    : new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'date inconnue';
+  return new Intl.DateTimeFormat('fr-FR', {
+    month: 'long',
+    year: 'numeric',
     timeZone: 'UTC',
   }).format(date);
 };
@@ -64,6 +100,67 @@ function mergeOptions(
     });
   });
   return [...byValue.values()].sort((left, right) => left.value.localeCompare(right.value));
+}
+
+function average(values: number[]) {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function pctChange(current: number, previous: number) {
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+function signedPct(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'n/a';
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
+}
+
+function formatNumber(value: number, digits = 0) {
+  return value.toLocaleString('fr-FR', { maximumFractionDigits: digits });
+}
+
+function accuracyPct(error: number, baseline: number) {
+  if (!Number.isFinite(error) || !Number.isFinite(baseline) || baseline <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((1 - error / baseline) * 100)));
+}
+
+function movementSentence(change: number | null, lowerIsBetter: boolean, metric: string) {
+  if (change === null || Math.abs(change) < 5) {
+    return `les derniers mois restent proches du rythme précédent sur ${metric}`;
+  }
+  if (change < 0) {
+    return lowerIsBetter
+      ? `les derniers mois montrent une amélioration nette sur ${metric}`
+      : `les derniers mois montrent un ralentissement sur ${metric}`;
+  }
+  return lowerIsBetter
+    ? `les derniers mois montrent une dégradation sur ${metric}`
+    : `les derniers mois montrent une hausse de charge sur ${metric}`;
+}
+
+function seasonalSentence(
+  historical: Array<{ period: string } & Record<string, string | number>>,
+  forecastPeriod: string,
+  forecastValue: number,
+  valueKey: string,
+  unit: string,
+) {
+  const month = String(forecastPeriod).slice(5, 7);
+  const previous = [...historical].reverse().find(point => String(point.period).slice(5, 7) === month);
+  if (!previous) return null;
+
+  const previousValue = Number(previous[valueKey]);
+  if (!Number.isFinite(previousValue) || previousValue <= 0) return null;
+
+  const change = pctChange(forecastValue, previousValue);
+  if (change === null) return null;
+
+  if (Math.abs(change) < 5) {
+    return `La saisonnalité confirme ce niveau : le même mois dans l'historique était à ${formatNumber(previousValue, 1)}${unit}, très proche de la projection.`;
+  }
+  return `La saisonnalité donne un repère utile : le même mois dans l'historique était à ${formatNumber(previousValue, 1)}${unit}, soit ${signedPct(change)} d'écart avec la projection.`;
 }
 
 function MetricCard({ label, value, detail, icon: Icon, tone = 'teal' }: {
@@ -111,143 +208,13 @@ function ForecastUnavailableCard({ title, message, detail }: {
   );
 }
 
-function ForecastDictionary() {
-  const entries = [
-    {
-      term: 'Valeur du mois prochain',
-      definition: 'Projection du modèle sélectionné pour le premier mois futur complet.',
-    },
-    {
-      term: 'Référence récente',
-      definition: 'Niveau observé sur les trois derniers mois complets, utilisé comme point de comparaison.',
-    },
-    {
-      term: 'Évolution attendue',
-      definition: 'Écart entre la projection du mois prochain et la référence récente.',
-    },
-    {
-      term: 'Fiabilité',
-      definition: 'Lecture simple de l’erreur de backtest : plus l’erreur est faible, plus la prévision est stable.',
-    },
-    {
-      term: 'Mois en cours',
-      definition: 'Affiché pour contexte, mais exclu de l’entraînement car les données du mois ne sont pas terminées.',
-    },
-  ];
-
-  return (
-    <section className="executive-card p-5 md:p-6">
-      <p className="section-kicker">Dictionnaire de prévision</p>
-      <h2 className="mt-1 text-lg font-bold text-slate-950">Comment lire les valeurs calculées</h2>
-      <dl className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {entries.map(entry => (
-          <div key={entry.term} className="border-l-2 border-teal-500 pl-3">
-            <dt className="text-sm font-bold text-slate-900">{entry.term}</dt>
-            <dd className="mt-1 text-xs leading-5 text-slate-500">{entry.definition}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
-
-function seasonalComparison(
-  historical: Array<{ period: string } & Record<string, string | number>>,
-  forecastPeriod: string,
-  forecastValue: number,
-  valueKey: string,
-  unit: string,
-) {
-  const month = String(forecastPeriod).slice(5, 7);
-  const previous = [...historical].reverse().find(point => String(point.period).slice(5, 7) === month);
-  if (!previous) {
-    return "Pas assez d'historique sur le même mois pour isoler une saisonnalité fiable.";
-  }
-  const previousValue = Number(previous[valueKey]);
-  if (!Number.isFinite(previousValue) || previousValue === 0) {
-    return "La comparaison saisonnière existe, mais la base passée est trop faible pour être interprétée.";
-  }
-  const change = ((forecastValue - previousValue) / previousValue) * 100;
-  const direction = change <= -5 ? 'en dessous' : change >= 5 ? 'au-dessus' : 'proche';
-  return `Par rapport au même mois observé dans l'historique (${monthLabel(previous.period)} : ${previousValue.toLocaleString('fr-FR')}${unit}), la projection est ${direction} (${change > 0 ? '+' : ''}${change.toFixed(1)}%).`;
-}
-
-function fallbackExplanation(title: string, points: string[]): ForecastExplanationPayload {
-  return {
-    headline: title,
-    paragraphs: points,
-    evidence: [],
-    contributors: [],
-    confidenceNote: '',
-  };
-}
-
-function formatContributorValue(value: number, metric: string) {
-  const formatted = value.toLocaleString('fr-FR', { maximumFractionDigits: 1 });
-  return metric.includes('délai') ? `${formatted} j` : formatted;
-}
-
-function ForecastExplanation({ title, explanation }: {
-  title: string;
-  explanation: ForecastExplanationPayload;
-}) {
-  return (
-    <section className="executive-card border-teal-100 bg-teal-50/60 p-5">
-      <p className="section-kicker">Pourquoi cette prévision ?</p>
-      <h2 className="mt-1 text-lg font-bold text-slate-950">{title}</h2>
-      <p className="mt-3 text-base font-bold leading-7 text-slate-950">{explanation.headline}</p>
-      <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-        {explanation.paragraphs.map(paragraph => (
-          <p key={paragraph}>{paragraph}</p>
-        ))}
-      </div>
-      {explanation.evidence.length > 0 && (
-        <dl className="mt-4 grid gap-3 md:grid-cols-3">
-          {explanation.evidence.map(item => (
-            <div key={item.label} className="rounded-lg border border-teal-100 bg-white/80 p-3">
-              <dt className="text-xs font-semibold uppercase text-teal-700">{item.label}</dt>
-              <dd className="mt-1 text-lg font-bold text-slate-950">{item.value}</dd>
-              <dd className="mt-1 text-xs leading-5 text-slate-500">{item.meaning}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {explanation.contributors.length > 0 && (
-        <div className="mt-4 rounded-xl border border-teal-100 bg-white/80 p-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-teal-700" />
-            <h3 className="text-sm font-bold text-slate-950">Moteurs observés</h3>
-          </div>
-          <ul className="mt-3 space-y-3">
-            {explanation.contributors.map(contributor => (
-              <li key={`${contributor.dimension}-${contributor.name}`} className="text-sm leading-6 text-slate-700">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-slate-900">{contributor.name}</span>
-                  <span className="rounded-full bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-800">
-                    {formatContributorValue(contributor.previousValue, contributor.metric)} → {formatContributorValue(contributor.recentValue, contributor.metric)}
-                    {contributor.changePct !== null ? ` (${contributor.changePct > 0 ? '+' : ''}${contributor.changePct}%)` : ''}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{contributor.interpretation}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {explanation.confidenceNote && (
-        <p className="mt-4 text-xs leading-5 text-slate-500">{explanation.confidenceNote}</p>
-      )}
-    </section>
-  );
-}
-
 function ForecastChart({ data, unit, rangeLabel }: {
-  data: Array<Record<string, unknown>>;
+  data: ForecastChartRow[];
   unit: string;
   rangeLabel: string;
 }) {
   return (
-    <ResponsiveContainer width="100%" height={380}>
+    <ResponsiveContainer width="100%" height={360}>
       <ComposedChart data={data}>
         <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
         <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} minTickGap={28} />
@@ -266,6 +233,92 @@ function ForecastChart({ data, unit, rangeLabel }: {
       </ComposedChart>
     </ResponsiveContainer>
   );
+}
+
+function NarrativeBlock({ narrative }: { narrative: ForecastNarrative }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <section className="executive-card border-teal-100 bg-teal-50/60 p-5">
+        <p className="section-kicker">Interprétation</p>
+        <h2 className="mt-1 text-lg font-bold text-slate-950">{narrative.title}</h2>
+        <p className="mt-3 text-sm leading-6 text-slate-700">{narrative.interpretation}</p>
+      </section>
+      <section className="executive-card p-5">
+        <p className="section-kicker">Pourquoi cette prévision ?</p>
+        <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+          {narrative.why.map(item => (
+            <p key={item}>{item}</p>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function buildDelayNarrative(prediction: ResolutionDelayPredictionResponse): ForecastNarrative {
+  const historyValues = prediction.historical.map(point => point.medianDays).filter(Number.isFinite);
+  const lastThree = historyValues.slice(-3);
+  const previousThree = historyValues.slice(-6, -3);
+  const recentAverage = average(lastThree);
+  const previousAverage = average(previousThree);
+  const momentum = pctChange(recentAverage, previousAverage);
+  const firstForecast = prediction.forecast[0];
+  const accuracy = accuracyPct(prediction.model.backtestMaeDays, prediction.summary.recentThreeMonthMedianDays);
+  const seasonal = firstForecast
+    ? seasonalSentence(prediction.historical, firstForecast.period, firstForecast.predictedMedianDays, 'medianDays', ' j')
+    : null;
+
+  const direction = prediction.summary.changePct <= -5
+    ? 'une baisse du délai'
+    : prediction.summary.changePct >= 5
+      ? 'une hausse du délai'
+      : 'un délai globalement stable';
+
+  return {
+    title: 'Délai de résolution',
+    interpretation: `La lecture métier est ${direction}. Le mois prochain est estimé à ${prediction.summary.nextMonthMedianDays} jours, contre ${prediction.summary.recentThreeMonthMedianDays} jours sur les trois derniers mois complets. Cela donne une variation de ${signedPct(prediction.summary.changePct)}.`,
+    why: [
+      `La prévision va dans ce sens parce que ${movementSentence(momentum, true, 'les délais')} : ${formatNumber(recentAverage, 1)} j récemment contre ${formatNumber(previousAverage, 1)} j sur les trois mois précédents.`,
+      seasonal || `La saisonnalité ne donne pas encore de signal assez net pour ce mois, donc la prévision s'appuie surtout sur le rythme récent.`,
+      `Le calcul apprend sur la période ${longMonthLabel(prediction.model.trainingStart)} - ${longMonthLabel(prediction.model.trainingEnd)}, avec ${formatNumber(prediction.model.resolvedTickets)} tickets résolus. Le mois en cours est exclu car il n'est pas terminé.`,
+      accuracy === null
+        ? `La précision historique n'est pas assez stable pour être résumée en pourcentage simple.`
+        : `Testée sur les anciens mois, la prévision atteint environ ${accuracy}% de précision sur ce périmètre.`,
+    ],
+  };
+}
+
+function buildVolumeNarrative(prediction: TicketVolumePredictionResponse): ForecastNarrative {
+  const historyValues = prediction.historical.map(point => point.ticketCount).filter(Number.isFinite);
+  const lastThree = historyValues.slice(-3);
+  const previousThree = historyValues.slice(-6, -3);
+  const recentAverage = average(lastThree);
+  const previousAverage = average(previousThree);
+  const momentum = pctChange(recentAverage, previousAverage);
+  const firstForecast = prediction.forecast[0];
+  const accuracy = accuracyPct(prediction.model.backtestMaeTickets, prediction.summary.recentThreeMonthAverageTickets);
+  const seasonal = firstForecast
+    ? seasonalSentence(prediction.historical, firstForecast.period, firstForecast.predictedTickets, 'ticketCount', ' tickets')
+    : null;
+
+  const direction = prediction.summary.changePct <= -5
+    ? 'une baisse de charge'
+    : prediction.summary.changePct >= 5
+      ? 'une hausse de charge'
+      : 'un volume globalement stable';
+
+  return {
+    title: 'Volume de tickets',
+    interpretation: `La lecture métier est ${direction}. Le mois prochain est estimé à ${formatNumber(prediction.summary.nextMonthTickets)} tickets, contre ${formatNumber(prediction.summary.recentThreeMonthAverageTickets, 1)} tickets par mois sur les trois derniers mois complets. Cela donne une variation de ${signedPct(prediction.summary.changePct)}.`,
+    why: [
+      `La prévision va dans ce sens parce que ${movementSentence(momentum, false, 'le volume')} : ${formatNumber(recentAverage, 1)} tickets/mois récemment contre ${formatNumber(previousAverage, 1)} sur les trois mois précédents.`,
+      seasonal || `La saisonnalité ne donne pas encore de signal assez net pour ce mois, donc la prévision s'appuie surtout sur le rythme récent.`,
+      `Le calcul apprend sur la période ${longMonthLabel(prediction.model.trainingStart)} - ${longMonthLabel(prediction.model.trainingEnd)}, avec ${formatNumber(prediction.model.tickets)} tickets créés. Le mois en cours est exclu car il n'est pas terminé.`,
+      accuracy === null
+        ? `La précision historique n'est pas assez stable pour être résumée en pourcentage simple.`
+        : `Testée sur les anciens mois, la prévision atteint environ ${accuracy}% de précision sur ce périmètre.`,
+    ],
+  };
 }
 
 export default function Predictions() {
@@ -339,7 +392,7 @@ export default function Predictions() {
     [delayOptions.projects, delayOptions.teams, scopeType, volumeOptions.projects, volumeOptions.teams],
   );
 
-  const delayChartData = useMemo(() => {
+  const delayChartData = useMemo<ForecastChartRow[]>(() => {
     if (!delayPrediction) return [];
     const history = delayPrediction.historical.slice(-24).map(point => ({
       period: point.period,
@@ -350,12 +403,12 @@ export default function Predictions() {
       period: point.period,
       label: monthLabel(point.period),
       predicted: point.predictedMedianDays,
-      range: [point.lowerBoundDays, point.upperBoundDays],
+      range: [point.lowerBoundDays, point.upperBoundDays] as [number, number],
     }));
     return [...history, ...forecast];
   }, [delayPrediction]);
 
-  const volumeChartData = useMemo(() => {
+  const volumeChartData = useMemo<ForecastChartRow[]>(() => {
     if (!volumePrediction) return [];
     const history = volumePrediction.historical.slice(-24).map(point => ({
       period: point.period,
@@ -366,50 +419,19 @@ export default function Predictions() {
       period: point.period,
       label: monthLabel(point.period),
       predicted: point.predictedTickets,
-      range: [point.lowerBoundTickets, point.upperBoundTickets],
+      range: [point.lowerBoundTickets, point.upperBoundTickets] as [number, number],
     }));
     return [...history, ...forecast];
   }, [volumePrediction]);
 
-  const delayExplanation = useMemo(() => {
-    if (!delayPrediction) return null;
-    if (delayPrediction.explanation) return delayPrediction.explanation;
-    const firstForecast = delayPrediction.forecast[0];
-    return fallbackExplanation('Délai médian de résolution', [
-      `Le prochain mois est estimé à ${delayPrediction.summary.nextMonthMedianDays} jours contre ${delayPrediction.summary.recentThreeMonthMedianDays} jours sur les trois derniers mois complets (${delayPrediction.summary.changePct > 0 ? '+' : ''}${delayPrediction.summary.changePct}%).`,
-      firstForecast
-        ? seasonalComparison(
-            delayPrediction.historical,
-            firstForecast.period,
-            firstForecast.predictedMedianDays,
-            'medianDays',
-            ' j',
-          )
-        : "Le modèle n'a pas assez de points futurs pour comparer la saisonnalité.",
-      `Le modèle retenu est ${delayPrediction.model.name}, choisi après backtest sur ${delayPrediction.model.historyMonths} mois et ${delayPrediction.model.resolvedTickets.toLocaleString('fr-FR')} tickets résolus.`,
-      `Erreur de backtest : ${delayPrediction.model.backtestMaeDays} jours. Le mois en cours est affiché pour contexte mais exclu de l'entraînement car il n'est pas terminé.`,
-    ]);
-  }, [delayPrediction]);
-
-  const volumeExplanation = useMemo(() => {
-    if (!volumePrediction) return null;
-    if (volumePrediction.explanation) return volumePrediction.explanation;
-    const firstForecast = volumePrediction.forecast[0];
-    return fallbackExplanation('Volume de nouveaux tickets', [
-      `Le prochain mois est estimé à ${volumePrediction.summary.nextMonthTickets.toLocaleString('fr-FR')} tickets contre ${volumePrediction.summary.recentThreeMonthAverageTickets.toLocaleString('fr-FR')} tickets/mois récemment (${volumePrediction.summary.changePct > 0 ? '+' : ''}${volumePrediction.summary.changePct}%).`,
-      firstForecast
-        ? seasonalComparison(
-            volumePrediction.historical,
-            firstForecast.period,
-            firstForecast.predictedTickets,
-            'ticketCount',
-            ' tickets',
-          )
-        : "Le modèle n'a pas assez de points futurs pour comparer la saisonnalité.",
-      `Le modèle retenu est ${volumePrediction.model.name}, choisi après backtest sur ${volumePrediction.model.historyMonths} mois et ${volumePrediction.model.tickets.toLocaleString('fr-FR')} tickets créés.`,
-      `Erreur de backtest : ${volumePrediction.model.backtestMaeTickets} tickets. Le mois en cours est affiché pour contexte mais exclu de l'entraînement car il n'est pas terminé.`,
-    ]);
-  }, [volumePrediction]);
+  const delayNarrative = useMemo(
+    () => delayPrediction ? buildDelayNarrative(delayPrediction) : null,
+    [delayPrediction],
+  );
+  const volumeNarrative = useMemo(
+    () => volumePrediction ? buildVolumeNarrative(volumePrediction) : null,
+    [volumePrediction],
+  );
 
   const delayTrendIcon = delayPrediction?.summary.trend === 'improving'
     ? ArrowDownRight
@@ -462,7 +484,7 @@ export default function Predictions() {
               onChange={event => setScopeValue(event.target.value)}
               className="min-w-[240px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none ring-primary/20 focus:ring-4"
             >
-              <option value="">Sélectionner…</option>
+              <option value="">Sélectionner...</option>
               {scopeOptions.map(option => (
                 <option key={option.value} value={option.value}>{option.value}</option>
               ))}
@@ -475,7 +497,7 @@ export default function Predictions() {
         <div className="executive-card flex min-h-[360px] items-center justify-center">
           <div className="text-center">
             <Sparkles className="mx-auto h-8 w-8 animate-pulse text-teal-600" />
-            <p className="mt-3 font-semibold text-slate-700">Calcul des prévisions par séries temporelles…</p>
+            <p className="mt-3 font-semibold text-slate-700">Calcul des prévisions...</p>
           </div>
         </div>
       )}
@@ -488,73 +510,49 @@ export default function Predictions() {
 
       {!loadingOptions && !loadingForecasts && (scopeType === 'global' || scopeValue) && (
         <>
-          {delayPrediction ? (
-            <>
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {delayPrediction && delayNarrative ? (
+            <section className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
-                  label="Délai attendu le mois prochain"
+                  label="Délai prévu"
                   value={`${delayPrediction.summary.nextMonthMedianDays} j`}
-                  detail={`Référence récente : ${delayPrediction.summary.recentThreeMonthMedianDays} jours`}
+                  detail="Estimation pour le prochain mois complet"
                   icon={CalendarRange}
                   tone="teal"
                 />
                 <MetricCard
-                  label="Moyenne prévue sur six mois"
-                  value={`${delayPrediction.summary.sixMonthAverageDays} j`}
-                  detail="Moyenne des six valeurs mensuelles projetées"
+                  label="Référence récente"
+                  value={`${delayPrediction.summary.recentThreeMonthMedianDays} j`}
+                  detail="Médiane des trois derniers mois complets"
                   icon={Sparkles}
                   tone="blue"
                 />
                 <MetricCard
-                  label="Évolution attendue"
-                  value={`${delayPrediction.summary.changePct > 0 ? '+' : ''}${delayPrediction.summary.changePct}%`}
-                  detail={delayPrediction.summary.businessInsight}
+                  label="Évolution"
+                  value={signedPct(delayPrediction.summary.changePct)}
+                  detail="Écart entre le mois prévu et la référence récente"
                   icon={delayTrendIcon}
                   tone={delayPrediction.summary.trend === 'deteriorating' ? 'amber' : 'teal'}
                 />
                 <MetricCard
-                  label="Fiabilité délai"
-                  value={delayPrediction.summary.reliability}
-                  detail={`Erreur backtest : ${delayPrediction.model.backtestMaeDays} jours`}
+                  label="Précision testée"
+                  value={`${accuracyPct(delayPrediction.model.backtestMaeDays, delayPrediction.summary.recentThreeMonthMedianDays) ?? 0}%`}
+                  detail="Mesurée sur les anciens mois disponibles"
                   icon={Gauge}
                   tone="slate"
                 />
-              </section>
+              </div>
 
-              <ForecastExplanation
-                title="Délai médian de résolution"
-                explanation={delayExplanation!}
-              />
-
-              <section className="grid gap-6 xl:grid-cols-[1.6fr_0.8fr]">
-                <div className="executive-card p-5 md:p-6">
-                  <div className="mb-5">
-                    <p className="section-kicker">Série temporelle — délais</p>
-                    <h2 className="text-lg font-bold text-slate-950">Délai médian de résolution</h2>
-                  </div>
-                  <ForecastChart data={delayChartData} unit=" j" rangeLabel="Plage probable" />
+              <div className="executive-card p-5 md:p-6">
+                <div className="mb-5">
+                  <p className="section-kicker">Tendance délai</p>
+                  <h2 className="text-lg font-bold text-slate-950">Délai médian de résolution</h2>
                 </div>
+                <ForecastChart data={delayChartData} unit=" j" rangeLabel="Plage probable" />
+              </div>
 
-                <div className="space-y-4">
-                  <div className="executive-card p-5">
-                    <p className="section-kicker">Lecture management</p>
-                    <p className="mt-2 text-lg font-bold leading-7 text-slate-950">{delayPrediction.summary.businessInsight}</p>
-                    <p className="mt-3 text-sm leading-6 text-slate-500">
-                      Modèle sélectionné après backtest : {delayPrediction.model.name}. Historique : {delayPrediction.model.historyMonths} mois et {delayPrediction.model.resolvedTickets.toLocaleString('fr-FR')} tickets résolus.
-                    </p>
-                  </div>
-                  {delayPrediction.currentMonth && (
-                    <div className="executive-card p-5">
-                      <p className="section-kicker">Mois en cours — délai</p>
-                      <p className="mt-2 text-3xl font-bold text-slate-950">{delayPrediction.currentMonth.medianDays} j</p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {delayPrediction.currentMonth.resolvedTickets} tickets déjà résolus. Donnée provisoire, non utilisée pour entraîner la prévision.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </section>
-            </>
+              <NarrativeBlock narrative={delayNarrative} />
+            </section>
           ) : (
             <ForecastUnavailableCard
               title="Prévision de délai non disponible"
@@ -563,101 +561,49 @@ export default function Predictions() {
             />
           )}
 
-          {(delayPrediction || volumePrediction) && <ForecastDictionary />}
-
-          {volumePrediction ? (
-            <>
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {volumePrediction && volumeNarrative ? (
+            <section className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
-                  label="Tickets attendus le mois prochain"
-                  value={volumePrediction.summary.nextMonthTickets.toLocaleString('fr-FR')}
-                  detail={`Référence récente : ${volumePrediction.summary.recentThreeMonthAverageTickets} tickets/mois`}
+                  label="Tickets prévus"
+                  value={formatNumber(volumePrediction.summary.nextMonthTickets)}
+                  detail="Estimation pour le prochain mois complet"
                   icon={Tickets}
                   tone="violet"
                 />
                 <MetricCard
-                  label="Moyenne prévue sur six mois"
-                  value={volumePrediction.summary.sixMonthAverageTickets.toLocaleString('fr-FR')}
-                  detail="Moyenne des six volumes mensuels projetés"
+                  label="Référence récente"
+                  value={formatNumber(volumePrediction.summary.recentThreeMonthAverageTickets, 1)}
+                  detail="Moyenne des trois derniers mois complets"
                   icon={Sparkles}
                   tone="blue"
                 />
                 <MetricCard
-                  label="Évolution du volume"
-                  value={`${volumePrediction.summary.changePct > 0 ? '+' : ''}${volumePrediction.summary.changePct}%`}
-                  detail={volumePrediction.summary.businessInsight}
+                  label="Évolution"
+                  value={signedPct(volumePrediction.summary.changePct)}
+                  detail="Écart entre le mois prévu et la référence récente"
                   icon={volumeTrendIcon}
                   tone={volumePrediction.summary.trend === 'increasing' ? 'amber' : 'teal'}
                 />
                 <MetricCard
-                  label="Fiabilité volume"
-                  value={volumePrediction.summary.reliability}
-                  detail={`Erreur backtest : ${volumePrediction.model.backtestMaeTickets} tickets`}
+                  label="Précision testée"
+                  value={`${accuracyPct(volumePrediction.model.backtestMaeTickets, volumePrediction.summary.recentThreeMonthAverageTickets) ?? 0}%`}
+                  detail="Mesurée sur les anciens mois disponibles"
                   icon={Gauge}
                   tone="slate"
                 />
-              </section>
+              </div>
 
-              <ForecastExplanation
-                title="Volume de nouveaux tickets"
-                explanation={volumeExplanation!}
-              />
+              <div className="executive-card p-5 md:p-6">
+                <div className="mb-5">
+                  <p className="section-kicker">Tendance tickets</p>
+                  <h2 className="text-lg font-bold text-slate-950">Volume mensuel de nouveaux tickets</h2>
+                </div>
+                <ForecastChart data={volumeChartData} unit="" rangeLabel="Plage probable" />
+              </div>
 
-              <section className="grid gap-6 xl:grid-cols-[1.6fr_0.8fr]">
-                <div className="executive-card p-5 md:p-6">
-                  <div className="mb-5">
-                    <p className="section-kicker">Série temporelle — tickets</p>
-                    <h2 className="text-lg font-bold text-slate-950">Volume mensuel de nouveaux tickets</h2>
-                  </div>
-                  <ForecastChart data={volumeChartData} unit="" rangeLabel="Plage probable" />
-                </div>
-
-                <div className="space-y-4">
-                  <div className="executive-card p-5">
-                    <p className="section-kicker">Lecture management</p>
-                    <p className="mt-2 text-lg font-bold leading-7 text-slate-950">{volumePrediction.summary.businessInsight}</p>
-                    <p className="mt-3 text-sm leading-6 text-slate-500">
-                      Modèle sélectionné après backtest : {volumePrediction.model.name}. Historique : {volumePrediction.model.historyMonths} mois et {volumePrediction.model.tickets.toLocaleString('fr-FR')} tickets créés.
-                    </p>
-                  </div>
-                  {volumePrediction.currentMonth && (
-                    <div className="executive-card p-5">
-                      <p className="section-kicker">Mois en cours — tickets</p>
-                      <p className="mt-2 text-3xl font-bold text-slate-950">{volumePrediction.currentMonth.ticketCount.toLocaleString('fr-FR')}</p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Tickets déjà créés ce mois-ci. Donnée provisoire, non utilisée pour entraîner la prévision.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="executive-card overflow-hidden">
-                <div className="border-b border-slate-100 px-5 py-4">
-                  <h2 className="font-bold text-slate-950">Prévision mensuelle des tickets</h2>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                      <tr>
-                        <th className="px-5 py-3">Mois</th>
-                        <th className="px-5 py-3">Tickets prévus</th>
-                        <th className="px-5 py-3">Plage probable à 80%</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {volumePrediction.forecast.map(point => (
-                        <tr key={point.period}>
-                          <td className="px-5 py-4 font-semibold text-slate-900">{monthLabel(point.period)}</td>
-                          <td className="px-5 py-4 text-slate-700">{point.predictedTickets.toLocaleString('fr-FR')}</td>
-                          <td className="px-5 py-4 text-slate-500">{point.lowerBoundTickets.toLocaleString('fr-FR')} à {point.upperBoundTickets.toLocaleString('fr-FR')} tickets</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </>
+              <NarrativeBlock narrative={volumeNarrative} />
+            </section>
           ) : (
             <ForecastUnavailableCard
               title="Prévision de volume non disponible"
@@ -666,36 +612,8 @@ export default function Predictions() {
             />
           )}
 
-          {delayPrediction && (
-            <section className="executive-card overflow-hidden">
-              <div className="border-b border-slate-100 px-5 py-4">
-                <h2 className="font-bold text-slate-950">Prévision mensuelle des délais</h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-5 py-3">Mois</th>
-                      <th className="px-5 py-3">Délai médian prévu</th>
-                      <th className="px-5 py-3">Plage probable à 80%</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {delayPrediction.forecast.map(point => (
-                      <tr key={point.period}>
-                        <td className="px-5 py-4 font-semibold text-slate-900">{monthLabel(point.period)}</td>
-                        <td className="px-5 py-4 text-slate-700">{point.predictedMedianDays} jours</td>
-                        <td className="px-5 py-4 text-slate-500">{point.lowerBoundDays} à {point.upperBoundDays} jours</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
           <p className="text-center text-xs leading-5 text-slate-400">
-            Ces projections sont des indicateurs d’aide à la décision par séries temporelles. Elles ne constituent pas un engagement de niveau de service.
+            Ces projections servent à préparer la charge opérationnelle. Elles restent indicatives et doivent être relues avec le contexte métier.
           </p>
         </>
       )}
