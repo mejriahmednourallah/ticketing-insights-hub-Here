@@ -594,20 +594,54 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
             """,
             params,
         )
+        dominant_cms_rows = rows(
+            conn,
+            f"""
+            with ranked as (
+              select
+                project_name,
+                technology,
+                count(*) as ticket_count,
+                row_number() over (
+                  partition by project_name
+                  order by count(*) desc, technology
+                ) as rn
+              from {FACT}
+              where nullif(project_name, '') is not null
+                and nullif(technology, '') is not null
+              group by 1, 2
+            )
+            select project_name, technology
+            from ranked
+            where rn = 1
+            """,
+        )
+    client_cms = {row["project_name"]: row["technology"] for row in dominant_cms_rows}
     reference = next((item for item in candidates if str(item["id"]) == str(ticket_id)), None)
     if not reference:
         raise HTTPException(status_code=404, detail="Reference ticket not found in filtered data")
 
+    def resolved_cms(item: dict[str, Any]) -> str:
+        value = client_cms.get(item.get("project_name")) or item.get("technology")
+        return str(value or "")
+
     def text(item: dict[str, Any]) -> str:
-        return " ".join(
-            str(item.get(key) or "")
-            for key in ("subject", "description", "project_name", "technology")
-        )
+        return " ".join([
+            str(item.get("subject") or ""),
+            str(item.get("description") or ""),
+            str(item.get("project_name") or ""),
+            resolved_cms(item),
+        ])
 
     def same_populated(left: dict[str, Any], right: dict[str, Any], key: str) -> bool:
         left_value = left.get(key) or NOT_PROVIDED
         right_value = right.get(key) or NOT_PROVIDED
         return left_value != NOT_PROVIDED and left_value == right_value
+
+    def same_resolved_cms(left: dict[str, Any], right: dict[str, Any]) -> bool:
+        left_value = resolved_cms(left)
+        right_value = resolved_cms(right)
+        return bool(left_value and right_value and left_value == right_value)
 
     ref_vector = Counter(tokenize(text(reference)))
     scored: list[dict[str, Any]] = []
@@ -625,7 +659,7 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
         structured_boost = 0.0
         if same_populated(reference, item, "project_name"):
             structured_boost += 0.08
-        if same_populated(reference, item, "technology"):
+        if same_resolved_cms(reference, item):
             structured_boost += 0.07
         scored.append({
             "ticket": item,
@@ -646,11 +680,16 @@ def similarity(ticket_id: int, request: SimilarityRequest) -> dict[str, Any]:
     output = []
     for rank, item in enumerate(scored[: request.topN], start=1):
         ticket = item["ticket"]
-        similarities = [f"Sujet: similarité texte sujet/description {round(item['textSimilarity'] * 100)}%"]
+        similarities = []
         if same_populated(reference, ticket, "project_name"):
             similarities.append(f"Client: même client - {reference.get('project_name')}")
-        if same_populated(reference, ticket, "technology"):
-            similarities.append(f"CMS: même CMS - {reference.get('technology')}")
+        similarities.append(f"Sujet: similarité texte sujet/description {round(item['textSimilarity'] * 100)}%")
+        if same_populated(reference, ticket, "project_name"):
+            cms = client_cms.get(reference.get("project_name"))
+            if cms:
+                similarities.append(f"CMS: CMS client - {cms}")
+        elif same_resolved_cms(reference, ticket):
+            similarities.append(f"CMS: même CMS - {resolved_cms(reference)}")
         output.append({
             "idA": str(ticket_id),
             "idB": str(ticket["id"]),

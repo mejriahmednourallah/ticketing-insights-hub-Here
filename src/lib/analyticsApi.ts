@@ -155,6 +155,19 @@ export type ForecastExplanation = {
   confidenceNote: string;
 };
 
+export type ForecastBacktestMetric = {
+  points?: number;
+  mae?: number;
+  rmse?: number;
+  mape?: number | null;
+  smape?: number | null;
+  wape?: number | null;
+  mase?: number | null;
+  bias?: number;
+  coverage80?: number | null;
+  directionalAccuracy?: number | null;
+};
+
 export type ResolutionDelayPredictionResponse = {
   scope: { type: PredictionScopeType; value: string | null };
   historical: Array<{ period: string; medianDays: number; resolvedTickets: number }>;
@@ -182,6 +195,7 @@ export type ResolutionDelayPredictionResponse = {
     baselineWeightedMase?: number | null;
     promoted?: boolean;
     selectionReason?: string;
+    metricsByHorizon?: Record<string, ForecastBacktestMetric>;
     trainingStart: string;
     trainingEnd: string;
     historyMonths: number;
@@ -217,6 +231,7 @@ export type TicketVolumePredictionResponse = {
     baselineWeightedMase?: number | null;
     promoted?: boolean;
     selectionReason?: string;
+    metricsByHorizon?: Record<string, ForecastBacktestMetric>;
     trainingStart: string;
     trainingEnd: string;
     historyMonths: number;

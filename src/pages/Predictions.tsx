@@ -21,6 +21,7 @@ import {
   Tickets,
 } from 'lucide-react';
 import {
+  ForecastBacktestMetric,
   PredictionOption,
   PredictionOptionsResponse,
   PredictionScopeType,
@@ -54,6 +55,12 @@ type ForecastNarrative = {
   title: string;
   interpretation: string;
   why: string[];
+};
+
+type ForecastPrecision = {
+  value: string;
+  detail: string;
+  sentence: string;
 };
 
 const monthLabel = (value: string | null | undefined) => {
@@ -121,9 +128,34 @@ function formatNumber(value: number, digits = 0) {
   return value.toLocaleString('fr-FR', { maximumFractionDigits: digits });
 }
 
-function accuracyPct(error: number, baseline: number) {
-  if (!Number.isFinite(error) || !Number.isFinite(baseline) || baseline <= 0) return null;
-  return Math.max(0, Math.min(100, Math.round((1 - error / baseline) * 100)));
+function metricForHorizon(metrics: Record<string, ForecastBacktestMetric> | undefined) {
+  return metrics?.['1'] ?? Object.values(metrics ?? {})[0];
+}
+
+function backtestPrecision(
+  metrics: Record<string, ForecastBacktestMetric> | undefined,
+  error: number,
+  unit: string,
+): ForecastPrecision {
+  const metric = metricForHorizon(metrics);
+  const smape = metric?.smape;
+  if (typeof smape === 'number' && Number.isFinite(smape)) {
+    const score = Math.max(0, Math.min(100, Math.round((1 - smape) * 100)));
+    if (score >= 35) {
+      return {
+        value: `${score}%`,
+        detail: 'Calculée sur les anciens mois disponibles',
+        sentence: `Testée sur les anciens mois, la prévision atteint environ ${score}% de précision sur ce périmètre.`,
+      };
+    }
+  }
+
+  const formattedError = Number.isFinite(error) ? formatNumber(error, 1) : 'n/a';
+  return {
+    value: 'Prudente',
+    detail: `Erreur historique moyenne : ${formattedError} ${unit}`,
+    sentence: `Testée sur les anciens mois, la prévision reste prudente : l'erreur historique moyenne est d'environ ${formattedError} ${unit}.`,
+  };
 }
 
 function movementSentence(change: number | null, lowerIsBetter: boolean, metric: string) {
@@ -263,7 +295,7 @@ function buildDelayNarrative(prediction: ResolutionDelayPredictionResponse): For
   const previousAverage = average(previousThree);
   const momentum = pctChange(recentAverage, previousAverage);
   const firstForecast = prediction.forecast[0];
-  const accuracy = accuracyPct(prediction.model.backtestMaeDays, prediction.summary.recentThreeMonthMedianDays);
+  const precision = backtestPrecision(prediction.model.metricsByHorizon, prediction.model.backtestMaeDays, 'jours');
   const seasonal = firstForecast
     ? seasonalSentence(prediction.historical, firstForecast.period, firstForecast.predictedMedianDays, 'medianDays', ' j')
     : null;
@@ -281,9 +313,7 @@ function buildDelayNarrative(prediction: ResolutionDelayPredictionResponse): For
       `La prévision va dans ce sens parce que ${movementSentence(momentum, true, 'les délais')} : ${formatNumber(recentAverage, 1)} j récemment contre ${formatNumber(previousAverage, 1)} j sur les trois mois précédents.`,
       seasonal || `La saisonnalité ne donne pas encore de signal assez net pour ce mois, donc la prévision s'appuie surtout sur le rythme récent.`,
       `Le calcul apprend sur la période ${longMonthLabel(prediction.model.trainingStart)} - ${longMonthLabel(prediction.model.trainingEnd)}, avec ${formatNumber(prediction.model.resolvedTickets)} tickets résolus. Le mois en cours est exclu car il n'est pas terminé.`,
-      accuracy === null
-        ? `La précision historique n'est pas assez stable pour être résumée en pourcentage simple.`
-        : `Testée sur les anciens mois, la prévision atteint environ ${accuracy}% de précision sur ce périmètre.`,
+      precision.sentence,
     ],
   };
 }
@@ -296,7 +326,7 @@ function buildVolumeNarrative(prediction: TicketVolumePredictionResponse): Forec
   const previousAverage = average(previousThree);
   const momentum = pctChange(recentAverage, previousAverage);
   const firstForecast = prediction.forecast[0];
-  const accuracy = accuracyPct(prediction.model.backtestMaeTickets, prediction.summary.recentThreeMonthAverageTickets);
+  const precision = backtestPrecision(prediction.model.metricsByHorizon, prediction.model.backtestMaeTickets, 'tickets');
   const seasonal = firstForecast
     ? seasonalSentence(prediction.historical, firstForecast.period, firstForecast.predictedTickets, 'ticketCount', ' tickets')
     : null;
@@ -314,9 +344,7 @@ function buildVolumeNarrative(prediction: TicketVolumePredictionResponse): Forec
       `La prévision va dans ce sens parce que ${movementSentence(momentum, false, 'le volume')} : ${formatNumber(recentAverage, 1)} tickets/mois récemment contre ${formatNumber(previousAverage, 1)} sur les trois mois précédents.`,
       seasonal || `La saisonnalité ne donne pas encore de signal assez net pour ce mois, donc la prévision s'appuie surtout sur le rythme récent.`,
       `Le calcul apprend sur la période ${longMonthLabel(prediction.model.trainingStart)} - ${longMonthLabel(prediction.model.trainingEnd)}, avec ${formatNumber(prediction.model.tickets)} tickets créés. Le mois en cours est exclu car il n'est pas terminé.`,
-      accuracy === null
-        ? `La précision historique n'est pas assez stable pour être résumée en pourcentage simple.`
-        : `Testée sur les anciens mois, la prévision atteint environ ${accuracy}% de précision sur ce périmètre.`,
+      precision.sentence,
     ],
   };
 }
@@ -432,6 +460,18 @@ export default function Predictions() {
     () => volumePrediction ? buildVolumeNarrative(volumePrediction) : null,
     [volumePrediction],
   );
+  const delayPrecision = useMemo(
+    () => delayPrediction
+      ? backtestPrecision(delayPrediction.model.metricsByHorizon, delayPrediction.model.backtestMaeDays, 'jours')
+      : null,
+    [delayPrediction],
+  );
+  const volumePrecision = useMemo(
+    () => volumePrediction
+      ? backtestPrecision(volumePrediction.model.metricsByHorizon, volumePrediction.model.backtestMaeTickets, 'tickets')
+      : null,
+    [volumePrediction],
+  );
 
   const delayTrendIcon = delayPrediction?.summary.trend === 'improving'
     ? ArrowDownRight
@@ -510,7 +550,7 @@ export default function Predictions() {
 
       {!loadingOptions && !loadingForecasts && (scopeType === 'global' || scopeValue) && (
         <>
-          {delayPrediction && delayNarrative ? (
+          {delayPrediction && delayNarrative && delayPrecision ? (
             <section className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
@@ -536,8 +576,8 @@ export default function Predictions() {
                 />
                 <MetricCard
                   label="Précision testée"
-                  value={`${accuracyPct(delayPrediction.model.backtestMaeDays, delayPrediction.summary.recentThreeMonthMedianDays) ?? 0}%`}
-                  detail="Mesurée sur les anciens mois disponibles"
+                  value={delayPrecision.value}
+                  detail={delayPrecision.detail}
                   icon={Gauge}
                   tone="slate"
                 />
@@ -561,7 +601,7 @@ export default function Predictions() {
             />
           )}
 
-          {volumePrediction && volumeNarrative ? (
+          {volumePrediction && volumeNarrative && volumePrecision ? (
             <section className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
@@ -587,8 +627,8 @@ export default function Predictions() {
                 />
                 <MetricCard
                   label="Précision testée"
-                  value={`${accuracyPct(volumePrediction.model.backtestMaeTickets, volumePrediction.summary.recentThreeMonthAverageTickets) ?? 0}%`}
-                  detail="Mesurée sur les anciens mois disponibles"
+                  value={volumePrecision.value}
+                  detail={volumePrecision.detail}
                   icon={Gauge}
                   tone="slate"
                 />

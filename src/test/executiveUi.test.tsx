@@ -66,7 +66,10 @@ const prediction = {
   },
   model: {
     name: 'damped_holt' as const,
-    backtestMaeDays: 3.2,
+    backtestMaeDays: 100,
+    metricsByHorizon: {
+      '1': { smape: 0.22, mae: 100, points: 12 },
+    },
     trainingStart: '2023-01-01',
     trainingEnd: '2026-05-01',
     historyMonths: 41,
@@ -125,6 +128,9 @@ const volumePrediction = {
   model: {
     name: 'seasonal_naive' as const,
     backtestMaeTickets: 8.4,
+    metricsByHorizon: {
+      '1': { smape: 0.11, mae: 8.4, points: 12 },
+    },
     trainingStart: '2023-01-01',
     trainingEnd: '2026-05-01',
     historyMonths: 41,
@@ -197,6 +203,8 @@ describe('executive interface', () => {
     expect(screen.getAllByText('Interprétation')).toHaveLength(2);
     expect(screen.getAllByText(/La lecture métier/i)).toHaveLength(2);
     expect(screen.getAllByText(/Testée sur les anciens mois/i)).toHaveLength(2);
+    expect(screen.getByText('78%')).toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Projet' }));
     fireEvent.change(await screen.findByLabelText('Choisir un projet'), {
@@ -255,7 +263,7 @@ describe('executive interface', () => {
             textSimilarity: 0.7,
             numDistance: 2,
             combinedScore: 0.82,
-            similarities: ['Sujet: similarité texte sujet/description 70%', 'Client: même client - Fatales', 'CMS: même CMS - Drupal'],
+            similarities: ['Client: même client - Fatales', 'Sujet: similarité texte sujet/description 70%', 'CMS: CMS client - Drupal'],
             differences: [],
             rank: 1,
           },
@@ -271,7 +279,7 @@ describe('executive interface', () => {
     fireEvent.click(screen.getByRole('button', { name: /#101/i }));
     expect(screen.getByText('Similarité')).toBeInTheDocument();
     expect(screen.getByText('Client: même client - Fatales')).toBeInTheDocument();
-    expect(screen.getByText('CMS: même CMS - Drupal')).toBeInTheDocument();
+    expect(screen.getByText('CMS: CMS client - Drupal')).toBeInTheDocument();
     expect(screen.queryByText('Différences')).not.toBeInTheDocument();
     expect(screen.queryByText('Projet: A')).not.toBeInTheDocument();
   });

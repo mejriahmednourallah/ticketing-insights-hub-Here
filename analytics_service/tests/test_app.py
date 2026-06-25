@@ -165,7 +165,7 @@ def create_dashboard_warehouse(path: Path) -> None:
                 1,
                 datetime(2026, 1, 10),
                 2026,
-                "Drupal",
+                "",
                 "Client A",
                 "Bug",
                 datetime(2025, 1, 1),
@@ -213,9 +213,10 @@ async def test_similarity_returns_similarity_reasons(monkeypatch, tmp_path: Path
     result = response.json()["results"][0]
     assert result["idB"] == "3"
     assert result["textSimilarity"] > 0
+    assert result["similarities"][0] == "Client: même client - Projet A"
     assert any(item.startswith("Sujet:") for item in result["similarities"])
     assert "Client: même client - Projet A" in result["similarities"]
-    assert "CMS: même CMS - Drupal" in result["similarities"]
+    assert "CMS: CMS client - Drupal" in result["similarities"]
     assert result["differences"] == []
     second = response.json()["results"][1]
     assert "CMS: même CMS - Drupal" in second["similarities"]

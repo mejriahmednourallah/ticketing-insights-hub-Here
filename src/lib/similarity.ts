@@ -112,21 +112,44 @@ export interface SimilarityCache {
   model: TfIdfModel;
   vectors: Map<string, number>[];
   numerals: number[][];
+  clientCms: Map<string, string>;
 }
-
-const textField = (t: Ticket) => `${t.subject} ${t.description ?? ''} ${t.project} ${t.technology}`;
 
 function samePopulated(left: string | undefined, right: string | undefined) {
   return Boolean(left && right && left === right);
 }
 
+function dominantClientCms(tickets: Ticket[]): Map<string, string> {
+  const counts = new Map<string, Map<string, number>>();
+  for (const ticket of tickets) {
+    if (!ticket.project || !ticket.technology) continue;
+    const projectCounts = counts.get(ticket.project) ?? new Map<string, number>();
+    projectCounts.set(ticket.technology, (projectCounts.get(ticket.technology) ?? 0) + 1);
+    counts.set(ticket.project, projectCounts);
+  }
+  const output = new Map<string, string>();
+  for (const [project, projectCounts] of counts) {
+    const [cms] = [...projectCounts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0] ?? [];
+    if (cms) output.set(project, cms);
+  }
+  return output;
+}
+
+function resolvedCms(ticket: Ticket, clientCms: Map<string, string>) {
+  return clientCms.get(ticket.project) || ticket.technology || '';
+}
+
+const textField = (t: Ticket, clientCms: Map<string, string>) =>
+  `${t.subject} ${t.description ?? ''} ${t.project} ${resolvedCms(t, clientCms)}`;
+
 /** Pre-compute tokenized texts, IDF model, TF-IDF vectors and numerical vectors once. */
 export function buildSimilarityCache(tickets: Ticket[]): SimilarityCache {
-  const tokenized = tickets.map(t => tokenize(textField(t)));
+  const clientCms = dominantClientCms(tickets);
+  const tokenized = tickets.map(t => tokenize(textField(t, clientCms)));
   const model = buildIdf(tokenized);
   const vectors = tokenized.map(tok => tfidfVector(tok, model));
   const numerals = tickets.map(ticketNumerals);
-  return { tickets, tokenized, model, vectors, numerals };
+  return { tickets, tokenized, model, vectors, numerals, clientCms };
 }
 
 /** Query similarity using a pre-built cache. Much faster than computeSimilaritiesForTicket. */
@@ -134,12 +157,13 @@ export function querySimilarity(
   cache: SimilarityCache,
   reference: Ticket,
 ): SimilarityResult[] {
-  const { tickets, vectors, numerals } = cache;
+  const { tickets, vectors, numerals, clientCms } = cache;
   if (tickets.length === 0) return [];
 
-  const refTokens = tokenize(textField(reference));
+  const refTokens = tokenize(textField(reference, clientCms));
   const refVec = tfidfVector(refTokens, cache.model);
   const refNum = ticketNumerals(reference);
+  const referenceCms = resolvedCms(reference, clientCms);
 
   const rawDists: number[] = [];
   const pairs: { idx: number; textSim: number; dist: number; ticket: Ticket }[] = [];
@@ -159,12 +183,18 @@ export function querySimilarity(
     const numSim = 1 - normDists[i];
     const structuredBoost =
       (samePopulated(reference.project, b.project) ? 0.08 : 0)
-      + (samePopulated(reference.technology, b.technology) ? 0.07 : 0);
+      + (samePopulated(referenceCms, resolvedCms(b, clientCms)) ? 0.07 : 0);
     const combined = Math.min(1, 0.72 * p.textSim + 0.13 * numSim + structuredBoost);
 
-    const similarities = [`Sujet: similarité texte sujet/description ${Math.round(p.textSim * 100)}%`];
+    const similarities: string[] = [];
     if (samePopulated(reference.project, b.project)) similarities.push(`Client: même client - ${reference.project}`);
-    if (samePopulated(reference.technology, b.technology)) similarities.push(`CMS: même CMS - ${reference.technology}`);
+    similarities.push(`Sujet: similarité texte sujet/description ${Math.round(p.textSim * 100)}%`);
+    if (samePopulated(reference.project, b.project)) {
+      const cms = clientCms.get(reference.project);
+      if (cms) similarities.push(`CMS: CMS client - ${cms}`);
+    } else if (samePopulated(referenceCms, resolvedCms(b, clientCms))) {
+      similarities.push(`CMS: même CMS - ${referenceCms}`);
+    }
 
     return {
       idA: reference.id,
@@ -206,8 +236,8 @@ export function computeHeatmapMatrix(tickets: Ticket[]): { ids: string[]; matrix
   const n = subset.length;
   if (n < 2) return { ids: subset.map(t => t.id), matrix: subset.map(() => [1]) };
 
-  const textField = (t: Ticket) => `${t.subject} ${t.description ?? ''} ${t.project} ${t.technology}`;
-  const tokenized = subset.map(t => tokenize(textField(t)));
+  const clientCms = dominantClientCms(subset);
+  const tokenized = subset.map(t => tokenize(textField(t, clientCms)));
   const model = buildIdf(tokenized);
   const vectors = tokenized.map(tok => tfidfVector(tok, model));
   const numVecs = subset.map(ticketNumerals);
