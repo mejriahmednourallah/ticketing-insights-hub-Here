@@ -1,10 +1,19 @@
-import { FormEvent, ReactNode, useEffect, useState } from 'react';
+import { createContext, FormEvent, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import { LogIn } from 'lucide-react';
 import { loginWithRedmine, LoginResponse } from '@/lib/analyticsApi';
 
 type SessionUser = LoginResponse['user'] & { source: LoginResponse['source'] };
+type AuthSession = {
+  user: SessionUser | null;
+  logout: () => void;
+};
 
 const STORAGE_KEY = 'ticketing-insights-user';
+const AuthSessionContext = createContext<AuthSession | null>(null);
+const DEFAULT_AUTH_SESSION: AuthSession = {
+  user: null,
+  logout: () => undefined,
+};
 
 function readSession(): SessionUser | null {
   try {
@@ -17,6 +26,14 @@ function readSession(): SessionUser | null {
 
 function saveSession(user: SessionUser) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+}
+
+function clearSession() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+export function useAuthSession() {
+  return useContext(AuthSessionContext) ?? DEFAULT_AUTH_SESSION;
 }
 
 export default function AuthGate({ children }: { children: ReactNode }) {
@@ -46,7 +63,18 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     }
   }
 
-  if (user) return <>{children}</>;
+  const session = useMemo<AuthSession>(() => ({
+    user,
+    logout: () => {
+      clearSession();
+      setUser(null);
+      setUsername('');
+      setPassword('');
+      setError(null);
+    },
+  }), [user]);
+
+  if (user) return <AuthSessionContext.Provider value={session}>{children}</AuthSessionContext.Provider>;
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-10 text-slate-950">

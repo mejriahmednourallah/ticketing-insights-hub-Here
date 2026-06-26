@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { BarChart3, Menu, Search, TrendingUp, X } from 'lucide-react';
+import { BarChart3, LogOut, Menu, Search, TrendingUp, X } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { useAuthSession } from '@/components/AuthGate';
 import { cn } from '@/lib/utils';
 
 const navigation = [
@@ -11,6 +12,7 @@ const navigation = [
 
 export default function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { logout } = useAuthSession();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -48,14 +50,25 @@ export default function AppShell() {
             })}
           </nav>
 
-          <button
-            type="button"
-            className="rounded-lg border border-slate-200 p-2 text-slate-700 md:hidden"
-            onClick={() => setMobileOpen(open => !open)}
-            aria-label="Ouvrir la navigation"
-          >
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="hidden items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 md:flex"
+              onClick={logout}
+            >
+              <LogOut className="h-4 w-4" />
+              Déconnexion
+            </button>
+
+            <button
+              type="button"
+              className="rounded-lg border border-slate-200 p-2 text-slate-700 md:hidden"
+              onClick={() => setMobileOpen(open => !open)}
+              aria-label="Ouvrir la navigation"
+            >
+              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
         </div>
 
         {mobileOpen && (
@@ -78,6 +91,17 @@ export default function AppShell() {
                 </NavLink>
               );
             })}
+            <button
+              type="button"
+              className="mt-2 flex w-full items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              onClick={() => {
+                setMobileOpen(false);
+                logout();
+              }}
+            >
+              <LogOut className="h-4 w-4" />
+              Déconnexion
+            </button>
           </nav>
         )}
       </header>
