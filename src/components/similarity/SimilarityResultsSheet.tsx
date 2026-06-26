@@ -38,7 +38,7 @@ function scoreBadge(pct: number) {
 const diagnosticDictionary = [
   {
     term: 'Score de similarité',
-    definition: 'Combinaison du score textuel et de la proximité numérique.',
+    definition: 'Combinaison du sujet, de la description, du même client, du même CMS et de la proximité numérique.',
   },
   {
     term: 'Score textuel',
@@ -239,7 +239,9 @@ export default function SimilarityResultsSheet({
                               ))}
                             </ul>
                           ) : (
-                            <p className="text-xs italic text-muted-foreground">Similarité surtout portée par le sujet et la description.</p>
+                            <p className="text-xs italic text-muted-foreground">
+                              Similarité calculée avec le sujet, la description, le client, le CMS et les écarts numériques.
+                            </p>
                           )}
                         </div>
                       </div>
