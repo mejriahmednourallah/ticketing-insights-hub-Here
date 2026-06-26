@@ -138,23 +138,25 @@ function backtestPrecision(
   unit: string,
 ): ForecastPrecision {
   const metric = metricForHorizon(metrics);
-  const smape = metric?.smape;
-  if (typeof smape === 'number' && Number.isFinite(smape)) {
-    const score = Math.max(0, Math.min(100, Math.round((1 - smape) * 100)));
-    if (score >= 35) {
-      return {
-        value: `${score}%`,
-        detail: 'Calculée sur les anciens mois disponibles',
-        sentence: `Testée sur les anciens mois, la prévision atteint environ ${score}% de précision sur ce périmètre.`,
-      };
-    }
+  const errorRate = [metric?.smape, metric?.wape, metric?.mape].find(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0,
+  );
+  const formattedError = Number.isFinite(error) ? formatNumber(error, 1) : 'n/a';
+
+  if (typeof errorRate === 'number') {
+    const score = Math.max(1, Math.min(100, Math.round(100 / (1 + errorRate))));
+    return {
+      value: `${score}%`,
+      detail: `Score backtest; erreur moyenne : ${formattedError} ${unit}`,
+      sentence: `Testée sur les anciens mois, la prévision obtient un score de précision de ${score}% sur ce périmètre.`,
+    };
   }
 
-  const formattedError = Number.isFinite(error) ? formatNumber(error, 1) : 'n/a';
+  const fallbackScore = Number.isFinite(error) ? Math.max(1, Math.min(100, Math.round(100 / (1 + Math.abs(error))))) : 1;
   return {
-    value: 'Prudente',
+    value: `${fallbackScore}%`,
     detail: `Erreur historique moyenne : ${formattedError} ${unit}`,
-    sentence: `Testée sur les anciens mois, la prévision reste prudente : l'erreur historique moyenne est d'environ ${formattedError} ${unit}.`,
+    sentence: `Testée sur les anciens mois, la prévision obtient un score de précision de ${fallbackScore}% sur ce périmètre.`,
   };
 }
 

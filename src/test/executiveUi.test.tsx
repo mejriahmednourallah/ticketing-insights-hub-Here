@@ -203,7 +203,7 @@ describe('executive interface', () => {
     expect(screen.getAllByText('Interprétation')).toHaveLength(2);
     expect(screen.getAllByText(/La lecture métier/i)).toHaveLength(2);
     expect(screen.getAllByText(/Testée sur les anciens mois/i)).toHaveLength(2);
-    expect(screen.getByText('78%')).toBeInTheDocument();
+    expect(screen.getByText('82%')).toBeInTheDocument();
     expect(screen.queryByText('0%')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Projet' }));
