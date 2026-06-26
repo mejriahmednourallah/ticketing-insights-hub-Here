@@ -184,6 +184,16 @@ export type ForecastAiInterpretation = {
   generatedAt: string;
 };
 
+export type ForecastPreprocessing = {
+  enabled: boolean;
+  target: 'resolution_delay' | 'ticket_volume';
+  method: string;
+  upperBound: number | null;
+  cappedMonths: number;
+  historyMonths: number;
+  cappedShare: number;
+};
+
 export type ResolutionDelayPredictionResponse = {
   scope: { type: PredictionScopeType; value: string | null };
   historical: Array<{ period: string; medianDays: number; resolvedTickets: number }>;
@@ -204,6 +214,7 @@ export type ResolutionDelayPredictionResponse = {
     reliability: 'Élevée' | 'Modérée' | 'Prudente';
     qualityTargetMet?: boolean;
     qualityWarning?: string | null;
+    preprocessing?: ForecastPreprocessing;
   };
   model: {
     name: ForecastModelName;
@@ -215,6 +226,7 @@ export type ResolutionDelayPredictionResponse = {
     selectionReason?: string;
     targetRangePct?: number;
     targetAccuracyPct?: number;
+    horizonOneWithin10Accuracy?: number;
     weightedWithin10Accuracy?: number;
     targetMet?: boolean;
     metricsByHorizon?: Record<string, ForecastBacktestMetric>;
@@ -222,6 +234,7 @@ export type ResolutionDelayPredictionResponse = {
     trainingEnd: string;
     historyMonths: number;
     resolvedTickets: number;
+    preprocessing?: ForecastPreprocessing;
   };
   explanation?: ForecastExplanation;
   aiInterpretation?: ForecastAiInterpretation;
@@ -247,6 +260,7 @@ export type TicketVolumePredictionResponse = {
     reliability: 'Élevée' | 'Modérée' | 'Prudente';
     qualityTargetMet?: boolean;
     qualityWarning?: string | null;
+    preprocessing?: ForecastPreprocessing;
   };
   model: {
     name: ForecastModelName;
@@ -258,6 +272,7 @@ export type TicketVolumePredictionResponse = {
     selectionReason?: string;
     targetRangePct?: number;
     targetAccuracyPct?: number;
+    horizonOneWithin10Accuracy?: number;
     weightedWithin10Accuracy?: number;
     targetMet?: boolean;
     metricsByHorizon?: Record<string, ForecastBacktestMetric>;
@@ -265,6 +280,7 @@ export type TicketVolumePredictionResponse = {
     trainingEnd: string;
     historyMonths: number;
     tickets: number;
+    preprocessing?: ForecastPreprocessing;
   };
   explanation?: ForecastExplanation;
   aiInterpretation?: ForecastAiInterpretation;

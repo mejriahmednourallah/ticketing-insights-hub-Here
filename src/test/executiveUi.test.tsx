@@ -223,7 +223,7 @@ describe('executive interface', () => {
     expect(screen.getAllByText('Pourquoi cette prévision ?')).toHaveLength(2);
     expect(screen.getByText('Interprétation IA')).toBeInTheDocument();
     expect(screen.getByText('Lecture automatique')).toBeInTheDocument();
-    expect(screen.getAllByText('Score plage ±10%')).toHaveLength(2);
+    expect(screen.getAllByText('Score à 1 mois ±10%')).toHaveLength(2);
     expect(screen.getByText('88%')).toBeInTheDocument();
     expect(screen.getByText('72%')).toBeInTheDocument();
     expect(screen.getByText(/Ce périmètre est en dessous de l’objectif 85%/i)).toBeInTheDocument();

@@ -50,7 +50,9 @@ CANDIDATE_MODELS: tuple[ModelName, ...] = (
     "robust_ensemble_top3",
 )
 ENSEMBLE_BASE_MODELS: tuple[ModelName, ...] = tuple(
-    model for model in CANDIDATE_MODELS if model not in {"lag_gradient_boosting", "robust_ensemble_top3"}
+    model
+    for model in CANDIDATE_MODELS
+    if model not in {"lag_gradient_boosting", "robust_ensemble_top3"}
 )
 
 
@@ -393,6 +395,56 @@ def _regular_ticket_series(points: list[TicketVolumePoint]):
     return observed.reindex(full_index).fillna(0.0)
 
 
+def _operational_training_series(series, target: ForecastTarget):
+    import numpy as np
+
+    values = np.asarray(series.to_numpy(dtype=float), dtype=float)
+    metadata = {
+        "enabled": False,
+        "target": target,
+        "method": "none",
+        "upperBound": None,
+        "cappedMonths": 0,
+        "historyMonths": int(len(values)),
+        "cappedShare": 0.0,
+    }
+    if len(values) < 12:
+        return series, metadata
+
+    clean_values = values[np.isfinite(values)]
+    if len(clean_values) < 12:
+        return series, metadata
+
+    median = float(np.median(clean_values))
+    mad = float(np.median(np.abs(clean_values - median)))
+    scaled_mad = 1.4826 * mad
+    quantile = 0.80
+    mad_multiplier = 1.5
+    robust_upper = median + mad_multiplier * scaled_mad
+    quantile_upper = float(np.quantile(clean_values, quantile))
+    upper = min(max(robust_upper, median), quantile_upper)
+    if not math.isfinite(upper) or upper <= 0:
+        return series, metadata
+
+    capped = np.minimum(values, upper)
+    capped_months = int(np.sum(values > upper))
+    if capped_months == 0:
+        return series, metadata
+
+    metadata.update(
+        {
+            "enabled": True,
+            "method": "median_plus_1_5_mad_capped_at_p80",
+            "upperBound": round(float(upper), 1),
+            "cappedMonths": capped_months,
+            "cappedShare": round(capped_months / len(values), 4),
+        }
+    )
+    capped_series = series.copy(deep=True)
+    capped_series.iloc[:] = capped
+    return capped_series, metadata
+
+
 def _winsorize_log_values(values):
     import numpy as np
 
@@ -728,6 +780,19 @@ def _weighted_metric(
     return weighted_sum / total_weight if total_weight else math.inf
 
 
+def _horizon_one_metric(candidate: CandidateResult, key: str) -> float:
+    metrics = candidate.metrics_by_horizon.get(1) or {}
+    value = metrics.get(key)
+    if isinstance(value, int | float) and math.isfinite(float(value)):
+        return float(value)
+    return math.inf
+
+
+def _horizon_one_within10(selected: CandidateResult) -> float:
+    value = _horizon_one_metric(selected, "within10Accuracy")
+    return value if math.isfinite(value) else 0.0
+
+
 def evaluate_candidate_model(
     series,
     model_name: ModelName,
@@ -847,14 +912,16 @@ def promote_candidate(candidates: list[CandidateResult]) -> CandidateResult:
         raise ForecastUnavailableError("Aucun modèle fiable ne peut être entraîné sur cet historique.")
 
     def selection_key(candidate: CandidateResult) -> tuple[float, float, float, float, float]:
-        weighted_wape = _weighted_metric(candidate.metrics_by_horizon, "wape")
-        weighted_smape = _weighted_metric(candidate.metrics_by_horizon, "smape")
+        horizon_one_within10 = _horizon_one_within10(candidate)
+        horizon_one_wape = _horizon_one_metric(candidate, "wape")
+        horizon_one_smape = _horizon_one_metric(candidate, "smape")
+        horizon_one_mae = _horizon_one_metric(candidate, "mae")
         return (
-            -candidate.weighted_within10_accuracy,
-            weighted_wape if math.isfinite(weighted_wape) else math.inf,
-            weighted_smape if math.isfinite(weighted_smape) else math.inf,
+            -horizon_one_within10,
+            horizon_one_wape,
+            horizon_one_smape,
+            horizon_one_mae,
             candidate.weighted_mase,
-            candidate.weighted_mae,
         )
 
     best = min(candidates, key=selection_key)
@@ -864,7 +931,7 @@ def promote_candidate(candidates: list[CandidateResult]) -> CandidateResult:
             best,
             baseline_weighted_mase=baseline.weighted_mase if baseline else None,
             promoted=True,
-            selection_reason="best_within10_accuracy",
+            selection_reason="best_horizon1_within10_accuracy",
         )
 
     if selection_key(best) <= selection_key(baseline):
@@ -872,7 +939,7 @@ def promote_candidate(candidates: list[CandidateResult]) -> CandidateResult:
             best,
             baseline_weighted_mase=baseline.weighted_mase,
             promoted=True,
-            selection_reason="beats_seasonal_naive_on_within10",
+            selection_reason="beats_seasonal_naive_on_horizon1_within10",
         )
     return replace(
         baseline,
@@ -1248,6 +1315,13 @@ def _build_explanation(
             "mais il n'est pas utilisé pour entraîner la prévision."
         ),
     ]
+    preprocessing = summary.get("preprocessing") if isinstance(summary, dict) else None
+    if isinstance(preprocessing, dict) and preprocessing.get("enabled"):
+        paragraphs.append(
+            "Le calcul utilise un historique operationnel plafonne : "
+            f"{preprocessing.get('cappedMonths')} mois atypiques ont ete limites a "
+            f"{preprocessing.get('upperBound')} {short_unit} pour eviter que les pics anciens pilotent toute la prevision."
+        )
     evidence = [
         {
             "label": "Écart vs référence récente",
@@ -1301,8 +1375,9 @@ def _model_payload(selected: CandidateResult, series, extra: dict[str, Any], bac
         backtest_key: round(selected.mae, 1),
         "targetRangePct": TARGET_RANGE_PCT,
         "targetAccuracyPct": round(TARGET_WITHIN10_ACCURACY * 100.0, 1),
+        "horizonOneWithin10Accuracy": round(_horizon_one_within10(selected), 4),
         "weightedWithin10Accuracy": round(selected.weighted_within10_accuracy, 4),
-        "targetMet": selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY,
+        "targetMet": _horizon_one_within10(selected) >= TARGET_WITHIN10_ACCURACY,
         "weightedMase": round(selected.weighted_mase, 4),
         "weightedMae": round(selected.weighted_mae, 4),
         "baselineWeightedMase": (
@@ -1374,7 +1449,8 @@ def build_forecast(
             f"{MIN_RECENT_MONTHS} mois actifs et {MIN_RECENT_OBSERVATIONS} tickets récents."
         )
 
-    series = _regular_series(history)
+    raw_series = _regular_series(history)
+    series, preprocessing = _operational_training_series(raw_series, target)
     selected = select_model(series, target)
     forecast_start = _next_month(current_month)
     first_model_period = _next_month(series.index[-1].to_pydatetime())
@@ -1392,6 +1468,7 @@ def build_forecast(
     recent_baseline = float(np.median(series.iloc[-3:]))
     next_month = float(predictions[0])
     change_pct = ((next_month - recent_baseline) / recent_baseline * 100.0) if recent_baseline else 0.0
+    target_met = _horizon_one_within10(selected) >= TARGET_WITHIN10_ACCURACY
     forecasts = []
     for step, (period, value) in enumerate(zip(future_index, predictions, strict=True), start=1):
         lower, upper = _fixed_pct_bounds(float(value), 1)
@@ -1412,17 +1489,18 @@ def build_forecast(
         "trend": "improving" if change_pct <= -10 else "deteriorating" if change_pct >= 10 else "stable",
         "businessInsight": _business_summary(change_pct),
         "reliability": _reliability(selected.mae, recent_baseline),
-        "qualityTargetMet": selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY,
+        "qualityTargetMet": target_met,
         "qualityWarning": (
             None
-            if selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY
+            if target_met
             else "Ce périmètre est en dessous de l’objectif 85%; lecture à utiliser avec prudence."
         ),
+        "preprocessing": preprocessing,
     }
     model_payload = _model_payload(
         selected,
         series,
-        {"resolvedTickets": resolved_tickets},
+        {"resolvedTickets": resolved_tickets, "preprocessing": preprocessing},
         "backtestMaeDays",
     )
     response = {
@@ -1517,7 +1595,8 @@ def build_ticket_volume_forecast(
             f"{MIN_RECENT_MONTHS} mois actifs et {MIN_RECENT_OBSERVATIONS} tickets récents."
         )
 
-    series = _regular_ticket_series(history)
+    raw_series = _regular_ticket_series(history)
+    series, preprocessing = _operational_training_series(raw_series, target)
     selected = select_model(series, target)
     forecast_start = _next_month(current_month)
     first_model_period = _next_month(series.index[-1].to_pydatetime())
@@ -1535,6 +1614,7 @@ def build_ticket_volume_forecast(
     recent_baseline = float(np.mean(series.iloc[-3:]))
     next_month = float(predictions[0])
     change_pct = ((next_month - recent_baseline) / recent_baseline * 100.0) if recent_baseline else 0.0
+    target_met = _horizon_one_within10(selected) >= TARGET_WITHIN10_ACCURACY
 
     forecasts = []
     for step, (period, value) in enumerate(zip(future_index, predictions, strict=True), start=1):
@@ -1558,14 +1638,15 @@ def build_ticket_volume_forecast(
         "trend": "decreasing" if change_pct <= -10 else "increasing" if change_pct >= 10 else "stable",
         "businessInsight": _ticket_volume_business_summary(change_pct),
         "reliability": _reliability(selected.mae, recent_baseline),
-        "qualityTargetMet": selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY,
+        "qualityTargetMet": target_met,
         "qualityWarning": (
             None
-            if selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY
+            if target_met
             else "Ce périmètre est en dessous de l’objectif 85%; lecture à utiliser avec prudence."
         ),
+        "preprocessing": preprocessing,
     }
-    model_payload = _model_payload(selected, series, {"tickets": tickets}, "backtestMaeTickets")
+    model_payload = _model_payload(selected, series, {"tickets": tickets, "preprocessing": preprocessing}, "backtestMaeTickets")
     response = {
         "scope": {"type": scope_type, "value": scope_value},
         "historical": [

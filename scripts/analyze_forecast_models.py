@@ -251,7 +251,7 @@ def model_row(scope: ScopeSpec, candidate: CandidateResult, promoted: CandidateR
         "weighted_mase": rounded(candidate.weighted_mase),
         "weighted_mae": rounded(candidate.weighted_mae),
         "weighted_within10_accuracy_pct": percent(candidate.weighted_within10_accuracy),
-        "target_met": candidate.weighted_within10_accuracy >= 0.85,
+        "target_met": (candidate.metrics_by_horizon.get(1, {}).get("within10Accuracy") or 0) >= 0.85,
         "promoted_live_model": candidate.name == promoted.name,
         "selection_reason": promoted.selection_reason if candidate.name == promoted.name else "",
     }
@@ -351,6 +351,10 @@ def scoreboard(rows: list[dict[str, Any]], selected_rows: list[dict[str, Any]]) 
                 "median_weighted_mae": median_optional([row["weighted_mae"] for row in model_rows]),
                 "median_weighted_within10_accuracy_pct": median_optional(
                     [row["weighted_within10_accuracy_pct"] for row in model_rows],
+                    2,
+                ),
+                "median_h1_within10_accuracy_pct": median_optional(
+                    [row["h1_within10_accuracy_pct"] for row in model_rows],
                     2,
                 ),
                 "target_met_scope_count": sum(1 for row in model_rows if row.get("target_met")),

@@ -140,9 +140,9 @@ function backtestPrecision(
   weightedWithin10Accuracy?: number,
 ): ForecastPrecision {
   const metric = metricForHorizon(metrics);
-  const within10Accuracy = typeof weightedWithin10Accuracy === 'number' && Number.isFinite(weightedWithin10Accuracy)
-    ? weightedWithin10Accuracy
-    : metric?.within10Accuracy;
+  const within10Accuracy = typeof metric?.within10Accuracy === 'number' && Number.isFinite(metric.within10Accuracy)
+    ? metric.within10Accuracy
+    : weightedWithin10Accuracy;
   const errorRate = [metric?.smape, metric?.wape, metric?.mape].find(
     (value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0,
   );
@@ -632,7 +632,7 @@ export default function Predictions() {
                   tone={delayPrediction.summary.trend === 'deteriorating' ? 'amber' : 'teal'}
                 />
                 <MetricCard
-                  label="Score plage ±10%"
+                  label="Score à 1 mois ±10%"
                   value={delayPrecision.value}
                   detail={delayPrecision.detail}
                   icon={Gauge}
@@ -683,7 +683,7 @@ export default function Predictions() {
                   tone={volumePrediction.summary.trend === 'increasing' ? 'amber' : 'teal'}
                 />
                 <MetricCard
-                  label="Score plage ±10%"
+                  label="Score à 1 mois ±10%"
                   value={volumePrecision.value}
                   detail={volumePrecision.detail}
                   icon={Gauge}

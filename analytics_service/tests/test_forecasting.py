@@ -295,6 +295,22 @@ def test_missing_months_are_interpolated_for_modeling(tmp_path: Path) -> None:
     assert len(result["forecast"]) == 6
 
 
+def test_operational_training_series_caps_spikes_without_mutating_raw_history() -> None:
+    raw = pd.Series(
+        [12, 14, 13, 15, 12, 14, 13, 15, 12, 14, 13, 15, 500, 16, 14, 15, 13, 14, 16, 15, 14, 13, 15, 14],
+        index=pd.date_range("2024-01-01", periods=24, freq="MS"),
+        dtype=float,
+    )
+
+    cleaned, metadata = forecasting._operational_training_series(raw, "resolution_delay")
+
+    assert metadata["enabled"] is True
+    assert metadata["cappedMonths"] >= 1
+    assert raw.max() == 500
+    assert cleaned.max() < 500
+    assert cleaned.index.equals(raw.index)
+
+
 def test_cache_invalidates_when_warehouse_mtime_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -374,7 +390,7 @@ def test_model_selection_prefers_within10_accuracy() -> None:
     selected = forecasting.promote_candidate([weak_classic, stronger_business])
 
     assert selected.name == "theta"
-    assert selected.selection_reason == "beats_seasonal_naive_on_within10"
+    assert selected.selection_reason == "beats_seasonal_naive_on_horizon1_within10"
 
 
 def test_resolution_delay_spike_is_winsorized_for_stable_forecast() -> None:
