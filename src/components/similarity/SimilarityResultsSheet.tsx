@@ -42,7 +42,15 @@ const diagnosticDictionary = [
   },
   {
     term: 'Score textuel',
-    definition: 'Mots communs entre le sujet et la description, avec un bonus quand le client ou le CMS est le même.',
+    definition: 'Mots communs entre le sujet et la description du ticket.',
+  },
+  {
+    term: 'Client',
+    definition: 'Le client correspond au projet Redmine. Quand deux tickets ont le même client, le score reçoit un bonus métier.',
+  },
+  {
+    term: 'CMS',
+    definition: 'Le CMS vient du champ CMS / Framework. Quand il manque sur un ticket, le CMS dominant du client est utilisé si disponible.',
   },
   {
     term: 'Distance numérique',

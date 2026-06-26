@@ -274,6 +274,10 @@ describe('executive interface', () => {
     expect(screen.getByText('Dictionnaire du diagnostic')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Dictionnaire du diagnostic/i }));
     expect(screen.getByText('Score textuel')).toBeInTheDocument();
+    expect(screen.getByText('Client')).toBeInTheDocument();
+    expect(screen.getByText('CMS')).toBeInTheDocument();
+    expect(screen.getByText(/Le client correspond au projet Redmine/i)).toBeInTheDocument();
+    expect(screen.getByText(/Le CMS vient du champ CMS \/ Framework/i)).toBeInTheDocument();
     expect(screen.getByText('Description')).toBeInTheDocument();
     expect(screen.getByText('Distance numérique')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /#101/i }));
