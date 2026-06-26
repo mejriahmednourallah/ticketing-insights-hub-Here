@@ -55,6 +55,7 @@ type ForecastNarrative = {
   title: string;
   interpretation: string;
   why: string[];
+  label: 'Interprétation IA' | 'Lecture automatique';
 };
 
 type ForecastPrecision = {
@@ -136,12 +137,25 @@ function backtestPrecision(
   metrics: Record<string, ForecastBacktestMetric> | undefined,
   error: number,
   unit: string,
+  weightedWithin10Accuracy?: number,
 ): ForecastPrecision {
   const metric = metricForHorizon(metrics);
+  const within10Accuracy = typeof weightedWithin10Accuracy === 'number' && Number.isFinite(weightedWithin10Accuracy)
+    ? weightedWithin10Accuracy
+    : metric?.within10Accuracy;
   const errorRate = [metric?.smape, metric?.wape, metric?.mape].find(
     (value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0,
   );
   const formattedError = Number.isFinite(error) ? formatNumber(error, 1) : 'n/a';
+
+  if (typeof within10Accuracy === 'number' && Number.isFinite(within10Accuracy)) {
+    const score = Math.max(0, Math.min(100, Math.round(within10Accuracy * 100)));
+    return {
+      value: `${score}%`,
+      detail: `Objectif: 85% dans la plage ±10%; erreur moyenne : ${formattedError} ${unit}`,
+      sentence: `Testée sur les anciens mois, la prévision tombe dans la plage ±10% dans ${score}% des cas.`,
+    };
+  }
 
   if (typeof errorRate === 'number') {
     const score = Math.max(1, Math.min(100, Math.round(100 / (1 + errorRate))));
@@ -269,13 +283,14 @@ function ForecastChart({ data, unit, rangeLabel }: {
   );
 }
 
-function NarrativeBlock({ narrative }: { narrative: ForecastNarrative }) {
+function NarrativeBlock({ narrative, warning }: { narrative: ForecastNarrative; warning?: string | null }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <section className="executive-card border-teal-100 bg-teal-50/60 p-5">
-        <p className="section-kicker">Interprétation</p>
+        <p className="section-kicker">{narrative.label}</p>
         <h2 className="mt-1 text-lg font-bold text-slate-950">{narrative.title}</h2>
         <p className="mt-3 text-sm leading-6 text-slate-700">{narrative.interpretation}</p>
+        {warning && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{warning}</p>}
       </section>
       <section className="executive-card p-5">
         <p className="section-kicker">Pourquoi cette prévision ?</p>
@@ -290,6 +305,15 @@ function NarrativeBlock({ narrative }: { narrative: ForecastNarrative }) {
 }
 
 function buildDelayNarrative(prediction: ResolutionDelayPredictionResponse): ForecastNarrative {
+  if (prediction.aiInterpretation?.available) {
+    return {
+      label: 'Interprétation IA',
+      title: prediction.aiInterpretation.headline,
+      interpretation: prediction.aiInterpretation.interpretation,
+      why: [...prediction.aiInterpretation.why, ...prediction.aiInterpretation.risks],
+    };
+  }
+
   const historyValues = prediction.historical.map(point => point.medianDays).filter(Number.isFinite);
   const lastThree = historyValues.slice(-3);
   const previousThree = historyValues.slice(-6, -3);
@@ -297,7 +321,12 @@ function buildDelayNarrative(prediction: ResolutionDelayPredictionResponse): For
   const previousAverage = average(previousThree);
   const momentum = pctChange(recentAverage, previousAverage);
   const firstForecast = prediction.forecast[0];
-  const precision = backtestPrecision(prediction.model.metricsByHorizon, prediction.model.backtestMaeDays, 'jours');
+  const precision = backtestPrecision(
+    prediction.model.metricsByHorizon,
+    prediction.model.backtestMaeDays,
+    'jours',
+    prediction.model.weightedWithin10Accuracy,
+  );
   const seasonal = firstForecast
     ? seasonalSentence(prediction.historical, firstForecast.period, firstForecast.predictedMedianDays, 'medianDays', ' j')
     : null;
@@ -310,6 +339,7 @@ function buildDelayNarrative(prediction: ResolutionDelayPredictionResponse): For
 
   return {
     title: 'Délai de résolution',
+    label: 'Lecture automatique',
     interpretation: `La lecture métier est ${direction}. Le mois prochain est estimé à ${prediction.summary.nextMonthMedianDays} jours, contre ${prediction.summary.recentThreeMonthMedianDays} jours sur les trois derniers mois complets. Cela donne une variation de ${signedPct(prediction.summary.changePct)}.`,
     why: [
       `La prévision va dans ce sens parce que ${movementSentence(momentum, true, 'les délais')} : ${formatNumber(recentAverage, 1)} j récemment contre ${formatNumber(previousAverage, 1)} j sur les trois mois précédents.`,
@@ -321,6 +351,15 @@ function buildDelayNarrative(prediction: ResolutionDelayPredictionResponse): For
 }
 
 function buildVolumeNarrative(prediction: TicketVolumePredictionResponse): ForecastNarrative {
+  if (prediction.aiInterpretation?.available) {
+    return {
+      label: 'Interprétation IA',
+      title: prediction.aiInterpretation.headline,
+      interpretation: prediction.aiInterpretation.interpretation,
+      why: [...prediction.aiInterpretation.why, ...prediction.aiInterpretation.risks],
+    };
+  }
+
   const historyValues = prediction.historical.map(point => point.ticketCount).filter(Number.isFinite);
   const lastThree = historyValues.slice(-3);
   const previousThree = historyValues.slice(-6, -3);
@@ -328,7 +367,12 @@ function buildVolumeNarrative(prediction: TicketVolumePredictionResponse): Forec
   const previousAverage = average(previousThree);
   const momentum = pctChange(recentAverage, previousAverage);
   const firstForecast = prediction.forecast[0];
-  const precision = backtestPrecision(prediction.model.metricsByHorizon, prediction.model.backtestMaeTickets, 'tickets');
+  const precision = backtestPrecision(
+    prediction.model.metricsByHorizon,
+    prediction.model.backtestMaeTickets,
+    'tickets',
+    prediction.model.weightedWithin10Accuracy,
+  );
   const seasonal = firstForecast
     ? seasonalSentence(prediction.historical, firstForecast.period, firstForecast.predictedTickets, 'ticketCount', ' tickets')
     : null;
@@ -341,6 +385,7 @@ function buildVolumeNarrative(prediction: TicketVolumePredictionResponse): Forec
 
   return {
     title: 'Volume de tickets',
+    label: 'Lecture automatique',
     interpretation: `La lecture métier est ${direction}. Le mois prochain est estimé à ${formatNumber(prediction.summary.nextMonthTickets)} tickets, contre ${formatNumber(prediction.summary.recentThreeMonthAverageTickets, 1)} tickets par mois sur les trois derniers mois complets. Cela donne une variation de ${signedPct(prediction.summary.changePct)}.`,
     why: [
       `La prévision va dans ce sens parce que ${movementSentence(momentum, false, 'le volume')} : ${formatNumber(recentAverage, 1)} tickets/mois récemment contre ${formatNumber(previousAverage, 1)} sur les trois mois précédents.`,
@@ -464,13 +509,23 @@ export default function Predictions() {
   );
   const delayPrecision = useMemo(
     () => delayPrediction
-      ? backtestPrecision(delayPrediction.model.metricsByHorizon, delayPrediction.model.backtestMaeDays, 'jours')
+      ? backtestPrecision(
+        delayPrediction.model.metricsByHorizon,
+        delayPrediction.model.backtestMaeDays,
+        'jours',
+        delayPrediction.model.weightedWithin10Accuracy,
+      )
       : null,
     [delayPrediction],
   );
   const volumePrecision = useMemo(
     () => volumePrediction
-      ? backtestPrecision(volumePrediction.model.metricsByHorizon, volumePrediction.model.backtestMaeTickets, 'tickets')
+      ? backtestPrecision(
+        volumePrediction.model.metricsByHorizon,
+        volumePrediction.model.backtestMaeTickets,
+        'tickets',
+        volumePrediction.model.weightedWithin10Accuracy,
+      )
       : null,
     [volumePrediction],
   );
@@ -577,7 +632,7 @@ export default function Predictions() {
                   tone={delayPrediction.summary.trend === 'deteriorating' ? 'amber' : 'teal'}
                 />
                 <MetricCard
-                  label="Précision testée"
+                  label="Score plage ±10%"
                   value={delayPrecision.value}
                   detail={delayPrecision.detail}
                   icon={Gauge}
@@ -590,10 +645,10 @@ export default function Predictions() {
                   <p className="section-kicker">Tendance délai</p>
                   <h2 className="text-lg font-bold text-slate-950">Délai médian de résolution</h2>
                 </div>
-                <ForecastChart data={delayChartData} unit=" j" rangeLabel="Plage probable" />
+                <ForecastChart data={delayChartData} unit=" j" rangeLabel="Plage ±10%" />
               </div>
 
-              <NarrativeBlock narrative={delayNarrative} />
+              <NarrativeBlock narrative={delayNarrative} warning={delayPrediction.summary.qualityWarning} />
             </section>
           ) : (
             <ForecastUnavailableCard
@@ -628,7 +683,7 @@ export default function Predictions() {
                   tone={volumePrediction.summary.trend === 'increasing' ? 'amber' : 'teal'}
                 />
                 <MetricCard
-                  label="Précision testée"
+                  label="Score plage ±10%"
                   value={volumePrecision.value}
                   detail={volumePrecision.detail}
                   icon={Gauge}
@@ -641,10 +696,10 @@ export default function Predictions() {
                   <p className="section-kicker">Tendance tickets</p>
                   <h2 className="text-lg font-bold text-slate-950">Volume mensuel de nouveaux tickets</h2>
                 </div>
-                <ForecastChart data={volumeChartData} unit="" rangeLabel="Plage probable" />
+                <ForecastChart data={volumeChartData} unit="" rangeLabel="Plage ±10%" />
               </div>
 
-              <NarrativeBlock narrative={volumeNarrative} />
+              <NarrativeBlock narrative={volumeNarrative} warning={volumePrediction.summary.qualityWarning} />
             </section>
           ) : (
             <ForecastUnavailableCard

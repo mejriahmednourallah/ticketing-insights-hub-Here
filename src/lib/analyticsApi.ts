@@ -115,6 +115,7 @@ export type ForecastModelName =
   | 'seasonal_median'
   | 'seasonal_naive_drift'
   | 'theta'
+  | 'lag_gradient_boosting'
   | 'robust_ensemble_top3';
 
 export type PredictionOption = {
@@ -165,7 +166,22 @@ export type ForecastBacktestMetric = {
   mase?: number | null;
   bias?: number;
   coverage80?: number | null;
+  within10Accuracy?: number | null;
+  within10Count?: number;
+  backtestCount?: number;
+  targetRangePct?: number;
+  targetMet?: boolean;
   directionalAccuracy?: number | null;
+};
+
+export type ForecastAiInterpretation = {
+  available: boolean;
+  source: 'lovable' | 'groq' | 'fallback';
+  headline: string;
+  interpretation: string;
+  why: string[];
+  risks: string[];
+  generatedAt: string;
 };
 
 export type ResolutionDelayPredictionResponse = {
@@ -186,6 +202,8 @@ export type ResolutionDelayPredictionResponse = {
     trend: 'improving' | 'stable' | 'deteriorating';
     businessInsight: string;
     reliability: 'Élevée' | 'Modérée' | 'Prudente';
+    qualityTargetMet?: boolean;
+    qualityWarning?: string | null;
   };
   model: {
     name: ForecastModelName;
@@ -195,6 +213,10 @@ export type ResolutionDelayPredictionResponse = {
     baselineWeightedMase?: number | null;
     promoted?: boolean;
     selectionReason?: string;
+    targetRangePct?: number;
+    targetAccuracyPct?: number;
+    weightedWithin10Accuracy?: number;
+    targetMet?: boolean;
     metricsByHorizon?: Record<string, ForecastBacktestMetric>;
     trainingStart: string;
     trainingEnd: string;
@@ -202,6 +224,7 @@ export type ResolutionDelayPredictionResponse = {
     resolvedTickets: number;
   };
   explanation?: ForecastExplanation;
+  aiInterpretation?: ForecastAiInterpretation;
 };
 
 export type TicketVolumePredictionResponse = {
@@ -222,6 +245,8 @@ export type TicketVolumePredictionResponse = {
     trend: 'decreasing' | 'stable' | 'increasing';
     businessInsight: string;
     reliability: 'Élevée' | 'Modérée' | 'Prudente';
+    qualityTargetMet?: boolean;
+    qualityWarning?: string | null;
   };
   model: {
     name: ForecastModelName;
@@ -231,6 +256,10 @@ export type TicketVolumePredictionResponse = {
     baselineWeightedMase?: number | null;
     promoted?: boolean;
     selectionReason?: string;
+    targetRangePct?: number;
+    targetAccuracyPct?: number;
+    weightedWithin10Accuracy?: number;
+    targetMet?: boolean;
     metricsByHorizon?: Record<string, ForecastBacktestMetric>;
     trainingStart: string;
     trainingEnd: string;
@@ -238,6 +267,7 @@ export type TicketVolumePredictionResponse = {
     tickets: number;
   };
   explanation?: ForecastExplanation;
+  aiInterpretation?: ForecastAiInterpretation;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

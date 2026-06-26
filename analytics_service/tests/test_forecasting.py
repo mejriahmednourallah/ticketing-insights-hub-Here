@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import analytics_service.forecasting as forecasting
+from analytics_service import forecast_ai
 
 
 def create_warehouse(path: Path, months: int = 36, tickets_per_month: int = 5) -> None:
@@ -186,7 +187,11 @@ def test_forecast_has_six_nonnegative_months_and_business_summary(tmp_path: Path
     assert result["model"]["name"] in set(forecasting.CANDIDATE_MODELS)
     assert result["model"]["weightedMase"] >= 0
     assert "metricsByHorizon" in result["model"]
+    assert "weightedWithin10Accuracy" in result["model"]
+    assert result["model"]["targetRangePct"] == 10.0
+    assert "qualityTargetMet" in result["summary"]
     assert result["summary"]["businessInsight"]
+    assert result["aiInterpretation"]["source"] == "fallback"
     assert result["explanation"]["headline"]
     assert "trois derniers mois" in result["explanation"]["paragraphs"][0]
     assert result["explanation"]["evidence"]
@@ -199,6 +204,9 @@ def test_forecast_has_six_nonnegative_months_and_business_summary(tmp_path: Path
         point["upperBoundDays"] >= point["lowerBoundDays"]
         for point in result["forecast"]
     )
+    first = result["forecast"][0]
+    assert first["lowerBoundDays"] == pytest.approx(first["predictedMedianDays"] * 0.9, abs=0.2)
+    assert first["upperBoundDays"] == pytest.approx(first["predictedMedianDays"] * 1.1, abs=0.2)
 
 
 def test_ticket_volume_forecast_has_six_nonnegative_months(tmp_path: Path) -> None:
@@ -217,7 +225,11 @@ def test_ticket_volume_forecast_has_six_nonnegative_months(tmp_path: Path) -> No
     assert result["model"]["tickets"] >= 120
     assert result["model"]["name"] in set(forecasting.CANDIDATE_MODELS)
     assert result["model"]["weightedMase"] >= 0
+    assert "weightedWithin10Accuracy" in result["model"]
+    assert result["model"]["targetRangePct"] == 10.0
+    assert "qualityTargetMet" in result["summary"]
     assert result["summary"]["businessInsight"]
+    assert result["aiInterpretation"]["source"] == "fallback"
     assert result["explanation"]["headline"]
     assert "trois derniers mois" in result["explanation"]["paragraphs"][0]
     assert result["explanation"]["evidence"]
@@ -230,6 +242,9 @@ def test_ticket_volume_forecast_has_six_nonnegative_months(tmp_path: Path) -> No
         point["upperBoundTickets"] >= point["lowerBoundTickets"]
         for point in result["forecast"]
     )
+    first = result["forecast"][0]
+    assert first["lowerBoundTickets"] == pytest.approx(first["predictedTickets"] * 0.9, abs=1)
+    assert first["upperBoundTickets"] == pytest.approx(first["predictedTickets"] * 1.1, abs=1)
 
 
 def test_sparse_scope_returns_clear_error(tmp_path: Path) -> None:
@@ -315,7 +330,7 @@ def test_trend_series_promotes_interpretable_trend_model() -> None:
 
     selected = forecasting.select_model(series, "ticket_volume")
 
-    assert selected.name in {"damped_holt", "theta", "robust_ensemble_top3"}
+    assert selected.name in {"damped_holt", "theta", "lag_gradient_boosting", "robust_ensemble_top3"}
     assert selected.weighted_mase < 1
 
 
@@ -328,8 +343,38 @@ def test_seasonal_series_keeps_seasonal_baseline_when_best() -> None:
 
     selected = forecasting.select_model(series, "ticket_volume")
 
-    assert selected.name in {"seasonal_naive", "seasonal_median", "robust_ensemble_top3"}
+    assert selected.name in {"seasonal_naive", "seasonal_median", "lag_gradient_boosting", "robust_ensemble_top3"}
     assert selected.weighted_mase == pytest.approx(0)
+
+
+def test_model_selection_prefers_within10_accuracy() -> None:
+    weak_classic = forecasting.CandidateResult(
+        name="seasonal_naive",
+        mae=1.0,
+        residuals=[1.0],
+        residuals_by_horizon={1: [1.0]},
+        metrics_by_horizon={1: {"mae": 1.0, "wape": 0.05, "smape": 0.05, "mase": 0.1, "within10Accuracy": 0.5}},
+        backtests_by_horizon={1: []},
+        weighted_within10_accuracy=0.5,
+        weighted_mase=0.1,
+        weighted_mae=1.0,
+    )
+    stronger_business = forecasting.CandidateResult(
+        name="theta",
+        mae=2.0,
+        residuals=[2.0],
+        residuals_by_horizon={1: [2.0]},
+        metrics_by_horizon={1: {"mae": 2.0, "wape": 0.1, "smape": 0.1, "mase": 0.2, "within10Accuracy": 0.9}},
+        backtests_by_horizon={1: []},
+        weighted_within10_accuracy=0.9,
+        weighted_mase=0.2,
+        weighted_mae=2.0,
+    )
+
+    selected = forecasting.promote_candidate([weak_classic, stronger_business])
+
+    assert selected.name == "theta"
+    assert selected.selection_reason == "beats_seasonal_naive_on_within10"
 
 
 def test_resolution_delay_spike_is_winsorized_for_stable_forecast() -> None:
@@ -365,6 +410,55 @@ def test_horizon_aware_intervals_are_nonnegative(tmp_path: Path) -> None:
     ]
     assert all(width >= 0 for width in widths)
     assert widths[-1] >= 0
+
+
+def test_ai_interpretation_success_uses_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    forecast_ai._cache.clear()
+    response = {
+        "scope": {"type": "global", "value": None},
+        "summary": {"nextMonthTickets": 10, "qualityTargetMet": True},
+        "model": {"trainingStart": "2024-01-01", "trainingEnd": "2025-12-01"},
+        "forecast": [],
+        "historical": [],
+        "explanation": {"headline": "Fallback", "paragraphs": ["Fallback paragraph"], "contributors": []},
+    }
+
+    monkeypatch.setenv("FORECAST_AI_ENABLED", "true")
+    monkeypatch.setenv("AI_PROVIDER_ORDER", "lovable")
+    monkeypatch.setattr(
+        forecast_ai,
+        "_call_lovable",
+        lambda context, timeout: '{"headline":"Signal en hausse","interpretation":"Le volume monte avec le rythme récent.","why":["Hausse récente"],"risks":["Historique limité"]}',
+    )
+
+    result = forecast_ai.build_ai_interpretation(response, "ticket_volume")
+
+    assert result["available"] is True
+    assert result["source"] == "lovable"
+    assert result["headline"] == "Signal en hausse"
+    assert result["why"] == ["Hausse récente"]
+
+
+def test_ai_interpretation_invalid_json_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    forecast_ai._cache.clear()
+    response = {
+        "scope": {"type": "global", "value": None},
+        "summary": {"nextMonthTickets": 10},
+        "model": {},
+        "forecast": [],
+        "historical": [],
+        "explanation": {"headline": "Fallback", "paragraphs": ["Fallback paragraph"], "confidenceNote": "Fallback risk"},
+    }
+
+    monkeypatch.setenv("FORECAST_AI_ENABLED", "true")
+    monkeypatch.setenv("AI_PROVIDER_ORDER", "lovable")
+    monkeypatch.setattr(forecast_ai, "_call_lovable", lambda context, timeout: "not json")
+
+    result = forecast_ai.build_ai_interpretation(response, "ticket_volume")
+
+    assert result["available"] is False
+    assert result["source"] == "fallback"
+    assert result["headline"] == "Fallback"
 
 
 def test_analysis_script_writes_json_csv_and_prometheus(tmp_path: Path) -> None:

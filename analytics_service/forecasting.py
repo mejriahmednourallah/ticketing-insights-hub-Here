@@ -17,10 +17,12 @@ MIN_RECENT_MONTHS = 9
 MIN_RECENT_OBSERVATIONS = 30
 DEFAULT_HORIZON_MONTHS = 6
 BACKTEST_MONTHS = 12
-BACKTEST_HORIZONS = (1, 3, 6)
-HORIZON_WEIGHTS = {1: 0.5, 3: 0.3, 6: 0.2}
+BACKTEST_HORIZONS = (1, 2, 3, 4, 5, 6)
+HORIZON_WEIGHTS = {1: 0.3, 2: 0.2, 3: 0.2, 4: 0.1, 5: 0.1, 6: 0.1}
 PROMOTION_MASE_IMPROVEMENT = 0.05
 MIN_FORECAST_DATE = datetime(2000, 1, 1)
+TARGET_RANGE_PCT = 10.0
+TARGET_WITHIN10_ACCURACY = 0.85
 
 ScopeType = Literal["global", "project", "team"]
 ForecastTarget = Literal["resolution_delay", "ticket_volume"]
@@ -32,6 +34,7 @@ ModelName = Literal[
     "seasonal_median",
     "seasonal_naive_drift",
     "theta",
+    "lag_gradient_boosting",
     "robust_ensemble_top3",
 ]
 
@@ -43,10 +46,11 @@ CANDIDATE_MODELS: tuple[ModelName, ...] = (
     "seasonal_median",
     "seasonal_naive_drift",
     "theta",
+    "lag_gradient_boosting",
     "robust_ensemble_top3",
 )
 ENSEMBLE_BASE_MODELS: tuple[ModelName, ...] = tuple(
-    model for model in CANDIDATE_MODELS if model != "robust_ensemble_top3"
+    model for model in CANDIDATE_MODELS if model not in {"lag_gradient_boosting", "robust_ensemble_top3"}
 )
 
 
@@ -73,8 +77,9 @@ class CandidateResult:
     mae: float
     residuals: list[float]
     residuals_by_horizon: dict[int, list[float]]
-    metrics_by_horizon: dict[int, dict[str, float | int | None]]
+    metrics_by_horizon: dict[int, dict[str, Any]]
     backtests_by_horizon: dict[int, list[dict[str, Any]]]
+    weighted_within10_accuracy: float
     weighted_mase: float
     weighted_mae: float
     baseline_weighted_mase: float | None = None
@@ -467,6 +472,9 @@ def _forecast_values(
     if name == "theta":
         return _fast_theta(training, horizon)
 
+    if name == "lag_gradient_boosting":
+        return _lag_gradient_boosting(training, horizon)
+
     if name == "robust_ensemble_top3":
         selected_models = _top_ensemble_models(training, target)
         forecasts = []
@@ -551,6 +559,68 @@ def _fast_theta(training, horizon: int):
     return np.asarray(forecasts, dtype=float)
 
 
+def _lag_features(values, index: int):
+    import numpy as np
+
+    values = np.asarray(values, dtype=float)
+    lags = [1, 2, 3, 6, 12]
+    windows = [3, 6, 12]
+    features: list[float] = []
+    for lag in lags:
+        features.append(float(values[index - lag]))
+    for window in windows:
+        recent = values[index - window : index]
+        features.extend([
+            float(np.mean(recent)),
+            float(np.median(recent)),
+            float(np.std(recent)),
+        ])
+    previous_three = values[index - 6 : index - 3]
+    recent_three = values[index - 3 : index]
+    momentum = float(np.mean(recent_three) - np.mean(previous_three)) if len(previous_three) == 3 else 0.0
+    month_slot = index % 12
+    features.extend([
+        float(index),
+        math.sin(2 * math.pi * month_slot / 12.0),
+        math.cos(2 * math.pi * month_slot / 12.0),
+        momentum,
+    ])
+    return features
+
+
+def _lag_gradient_boosting(training, horizon: int):
+    import numpy as np
+    from sklearn.ensemble import GradientBoostingRegressor
+
+    values = np.asarray(training, dtype=float)
+    max_lag = 12
+    if len(values) < max_lag + 12:
+        raise ValueError("Lag gradient boosting requires at least 24 months")
+
+    x_rows = [_lag_features(values, index) for index in range(max_lag, len(values))]
+    y = values[max_lag:]
+    if len(x_rows) < 12:
+        raise ValueError("Lag gradient boosting has insufficient training rows")
+
+    model = GradientBoostingRegressor(
+        loss="huber",
+        n_estimators=45,
+        learning_rate=0.06,
+        max_depth=2,
+        random_state=42,
+    )
+    model.fit(np.asarray(x_rows, dtype=float), np.asarray(y, dtype=float))
+
+    history = list(values)
+    forecasts: list[float] = []
+    for _ in range(horizon):
+        feature_row = np.asarray([_lag_features(history, len(history))], dtype=float)
+        prediction = float(model.predict(feature_row)[0])
+        forecasts.append(prediction)
+        history.append(prediction)
+    return np.asarray(forecasts, dtype=float)
+
+
 def _top_ensemble_models(training, target: ForecastTarget) -> list[ModelName]:
     import numpy as np
 
@@ -593,7 +663,7 @@ def _metric_summary(
     residuals,
     mase_denominator: float | None,
     previous_actuals=None,
-) -> dict[str, float | int | None]:
+) -> dict[str, Any]:
     import numpy as np
 
     actuals = np.asarray(actuals, dtype=float)
@@ -601,6 +671,8 @@ def _metric_summary(
     residuals = np.asarray(residuals, dtype=float)
     absolute_errors = np.abs(residuals)
     positive_actuals = actuals > 0
+    fixed_range = np.abs(forecasts) * (TARGET_RANGE_PCT / 100.0)
+    within10_mask = absolute_errors <= fixed_range
     smape_denominator = np.abs(actuals) + np.abs(forecasts)
     smape_mask = smape_denominator > 0
     lower_residual, upper_residual = np.quantile(residuals, [0.1, 0.9])
@@ -632,12 +704,17 @@ def _metric_summary(
         "bias": float(np.mean(forecasts - actuals)),
         "coverage80": float(coverage),
         "interval80Width": float(upper_residual - lower_residual),
+        "within10Accuracy": float(np.mean(within10_mask)),
+        "within10Count": int(np.sum(within10_mask)),
+        "backtestCount": int(len(actuals)),
+        "targetRangePct": TARGET_RANGE_PCT,
+        "targetMet": bool(float(np.mean(within10_mask)) >= TARGET_WITHIN10_ACCURACY),
         "directionalAccuracy": directional_accuracy,
     }
 
 
 def _weighted_metric(
-    metrics_by_horizon: dict[int, dict[str, float | int | None]],
+    metrics_by_horizon: dict[int, dict[str, Any]],
     key: str,
 ) -> float:
     weighted_sum = 0.0
@@ -669,6 +746,8 @@ def evaluate_candidate_model(
     residuals_by_horizon: dict[int, list[float]] = {}
     metrics_by_horizon: dict[int, dict[str, float | int | None]] = {}
     backtests_by_horizon: dict[int, list[dict[str, Any]]] = {}
+    forecast_cache: dict[int, Any] = {}
+    max_horizon = max(horizons)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -682,9 +761,12 @@ def evaluate_candidate_model(
                 training_end = actual_index - horizon + 1
                 if training_end < 12:
                     continue
-                training = _training_log_values(raw_values[:training_end], target)
                 try:
-                    forecast_log = _forecast_values(model_name, training, horizon, target)
+                    forecast_log = forecast_cache.get(training_end)
+                    if forecast_log is None:
+                        training = _training_log_values(raw_values[:training_end], target)
+                        forecast_log = _forecast_values(model_name, training, max_horizon, target)
+                        forecast_cache[training_end] = forecast_log
                 except (ValueError, RuntimeError, OverflowError, np.linalg.LinAlgError):
                     actuals = []
                     forecasts = []
@@ -725,6 +807,7 @@ def evaluate_candidate_model(
         raise ForecastUnavailableError(f"Aucun backtest exploitable pour {model_name}.")
 
     weighted_mae = _weighted_metric(metrics_by_horizon, "mae")
+    weighted_within10 = _weighted_metric(metrics_by_horizon, "within10Accuracy")
     weighted_mase = _weighted_metric(metrics_by_horizon, "mase")
     if not math.isfinite(weighted_mase):
         weighted_mase = weighted_mae
@@ -737,6 +820,7 @@ def evaluate_candidate_model(
         residuals_by_horizon=residuals_by_horizon,
         metrics_by_horizon=metrics_by_horizon,
         backtests_by_horizon=backtests_by_horizon,
+        weighted_within10_accuracy=weighted_within10 if math.isfinite(weighted_within10) else 0.0,
         weighted_mase=weighted_mase,
         weighted_mae=weighted_mae,
     )
@@ -762,23 +846,33 @@ def promote_candidate(candidates: list[CandidateResult]) -> CandidateResult:
     if not candidates:
         raise ForecastUnavailableError("Aucun modèle fiable ne peut être entraîné sur cet historique.")
 
-    best = min(candidates, key=lambda candidate: (candidate.weighted_mase, candidate.weighted_mae))
+    def selection_key(candidate: CandidateResult) -> tuple[float, float, float, float, float]:
+        weighted_wape = _weighted_metric(candidate.metrics_by_horizon, "wape")
+        weighted_smape = _weighted_metric(candidate.metrics_by_horizon, "smape")
+        return (
+            -candidate.weighted_within10_accuracy,
+            weighted_wape if math.isfinite(weighted_wape) else math.inf,
+            weighted_smape if math.isfinite(weighted_smape) else math.inf,
+            candidate.weighted_mase,
+            candidate.weighted_mae,
+        )
+
+    best = min(candidates, key=selection_key)
     baseline = next((candidate for candidate in candidates if candidate.name == "seasonal_naive"), None)
     if baseline is None or best.name == "seasonal_naive":
         return replace(
             best,
             baseline_weighted_mase=baseline.weighted_mase if baseline else None,
             promoted=True,
-            selection_reason="best_weighted_mase",
+            selection_reason="best_within10_accuracy",
         )
 
-    required_score = baseline.weighted_mase * (1.0 - PROMOTION_MASE_IMPROVEMENT)
-    if best.weighted_mase <= required_score:
+    if selection_key(best) <= selection_key(baseline):
         return replace(
             best,
             baseline_weighted_mase=baseline.weighted_mase,
             promoted=True,
-            selection_reason="beats_seasonal_naive_by_5pct",
+            selection_reason="beats_seasonal_naive_on_within10",
         )
     return replace(
         baseline,
@@ -1205,6 +1299,10 @@ def _model_payload(selected: CandidateResult, series, extra: dict[str, Any], bac
     return {
         "name": selected.name,
         backtest_key: round(selected.mae, 1),
+        "targetRangePct": TARGET_RANGE_PCT,
+        "targetAccuracyPct": round(TARGET_WITHIN10_ACCURACY * 100.0, 1),
+        "weightedWithin10Accuracy": round(selected.weighted_within10_accuracy, 4),
+        "targetMet": selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY,
         "weightedMase": round(selected.weighted_mase, 4),
         "weightedMae": round(selected.weighted_mae, 4),
         "baselineWeightedMase": (
@@ -1220,6 +1318,14 @@ def _model_payload(selected: CandidateResult, series, extra: dict[str, Any], bac
         "historyMonths": len(series),
         **extra,
     }
+
+
+def _fixed_pct_bounds(value: float, digits: int = 1) -> tuple[float, float]:
+    delta = abs(float(value)) * (TARGET_RANGE_PCT / 100.0)
+    return (
+        round(max(0.0, float(value) - delta), digits),
+        round(max(0.0, float(value) + delta), digits),
+    )
 
 
 def build_forecast(
@@ -1288,10 +1394,7 @@ def build_forecast(
     change_pct = ((next_month - recent_baseline) / recent_baseline * 100.0) if recent_baseline else 0.0
     forecasts = []
     for step, (period, value) in enumerate(zip(future_index, predictions, strict=True), start=1):
-        residuals = _interval_residuals(selected, step)
-        lower_residual, upper_residual = np.quantile(residuals, [0.1, 0.9])
-        lower = round(max(0.0, float(value + lower_residual)), 1)
-        upper = round(max(lower, float(value + upper_residual)), 1)
+        lower, upper = _fixed_pct_bounds(float(value), 1)
         forecasts.append(
             {
                 "period": period.date().isoformat(),
@@ -1309,6 +1412,12 @@ def build_forecast(
         "trend": "improving" if change_pct <= -10 else "deteriorating" if change_pct >= 10 else "stable",
         "businessInsight": _business_summary(change_pct),
         "reliability": _reliability(selected.mae, recent_baseline),
+        "qualityTargetMet": selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY,
+        "qualityWarning": (
+            None
+            if selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY
+            else "Ce périmètre est en dessous de l’objectif 85%; lecture à utiliser avec prudence."
+        ),
     }
     model_payload = _model_payload(
         selected,
@@ -1351,6 +1460,9 @@ def build_forecast(
             summary=summary_payload,
             model=model_payload,
         )
+    from analytics_service.forecast_ai import build_ai_interpretation
+
+    response["aiInterpretation"] = build_ai_interpretation(response, target)
     with _cache_lock:
         stale_keys = [key for key in _forecast_cache if key[0] != stat.st_mtime_ns]
         for key in stale_keys:
@@ -1426,10 +1538,9 @@ def build_ticket_volume_forecast(
 
     forecasts = []
     for step, (period, value) in enumerate(zip(future_index, predictions, strict=True), start=1):
-        residuals = _interval_residuals(selected, step)
-        lower_residual, upper_residual = np.quantile(residuals, [0.1, 0.9])
-        lower = max(0, int(round(float(value + lower_residual))))
-        upper = max(lower, int(round(float(value + upper_residual))))
+        lower_raw, upper_raw = _fixed_pct_bounds(float(value), 0)
+        lower = max(0, int(round(lower_raw)))
+        upper = max(lower, int(round(upper_raw)))
         forecasts.append(
             {
                 "period": period.date().isoformat(),
@@ -1447,6 +1558,12 @@ def build_ticket_volume_forecast(
         "trend": "decreasing" if change_pct <= -10 else "increasing" if change_pct >= 10 else "stable",
         "businessInsight": _ticket_volume_business_summary(change_pct),
         "reliability": _reliability(selected.mae, recent_baseline),
+        "qualityTargetMet": selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY,
+        "qualityWarning": (
+            None
+            if selected.weighted_within10_accuracy >= TARGET_WITHIN10_ACCURACY
+            else "Ce périmètre est en dessous de l’objectif 85%; lecture à utiliser avec prudence."
+        ),
     }
     model_payload = _model_payload(selected, series, {"tickets": tickets}, "backtestMaeTickets")
     response = {
@@ -1482,6 +1599,9 @@ def build_ticket_volume_forecast(
             summary=summary_payload,
             model=model_payload,
         )
+    from analytics_service.forecast_ai import build_ai_interpretation
+
+    response["aiInterpretation"] = build_ai_interpretation(response, target)
     with _cache_lock:
         stale_keys = [key for key in _forecast_cache if key[0] != stat.st_mtime_ns]
         for key in stale_keys:

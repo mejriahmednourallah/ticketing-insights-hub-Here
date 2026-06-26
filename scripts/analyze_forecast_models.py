@@ -230,6 +230,8 @@ def skipped(scope: ScopeSpec, model_name: ModelName, reason: str) -> dict[str, A
         "observations": scope.observations,
         "weighted_mase": None,
         "weighted_mae": None,
+        "weighted_within10_accuracy_pct": None,
+        "target_met": False,
         "promoted_live_model": False,
         "selection_reason": "",
     }
@@ -248,6 +250,8 @@ def model_row(scope: ScopeSpec, candidate: CandidateResult, promoted: CandidateR
         "observations": scope.observations,
         "weighted_mase": rounded(candidate.weighted_mase),
         "weighted_mae": rounded(candidate.weighted_mae),
+        "weighted_within10_accuracy_pct": percent(candidate.weighted_within10_accuracy),
+        "target_met": candidate.weighted_within10_accuracy >= 0.85,
         "promoted_live_model": candidate.name == promoted.name,
         "selection_reason": promoted.selection_reason if candidate.name == promoted.name else "",
     }
@@ -262,6 +266,10 @@ def model_row(scope: ScopeSpec, candidate: CandidateResult, promoted: CandidateR
         row[f"h{horizon}_bias"] = rounded(metrics.get("bias"))
         row[f"h{horizon}_coverage80_pct"] = percent(metrics.get("coverage80"))
         row[f"h{horizon}_interval80_width"] = rounded(metrics.get("interval80Width"))
+        row[f"h{horizon}_within10_accuracy_pct"] = percent(metrics.get("within10Accuracy"))
+        row[f"h{horizon}_within10_count"] = metrics.get("within10Count", 0)
+        row[f"h{horizon}_backtest_count"] = metrics.get("backtestCount", 0)
+        row[f"h{horizon}_target_met"] = metrics.get("targetMet", False)
         row[f"h{horizon}_directional_accuracy_pct"] = percent(metrics.get("directionalAccuracy"))
     return row
 
@@ -287,6 +295,10 @@ def horizon_rows(scope: ScopeSpec, candidate: CandidateResult, promoted: Candida
                 "bias": rounded(metrics.get("bias")),
                 "coverage80_pct": percent(metrics.get("coverage80")),
                 "interval80_width": rounded(metrics.get("interval80Width")),
+                "within10_accuracy_pct": percent(metrics.get("within10Accuracy")),
+                "within10_count": metrics.get("within10Count", 0),
+                "backtest_count": metrics.get("backtestCount", 0),
+                "target_met": metrics.get("targetMet", False),
                 "directional_accuracy_pct": percent(metrics.get("directionalAccuracy")),
             }
         )
@@ -310,6 +322,10 @@ def backtest_rows(scope: ScopeSpec, candidate: CandidateResult) -> list[dict[str
                     "forecast": rounded(prediction["forecast"]),
                     "error": rounded(prediction["error"]),
                     "absolute_error": rounded(prediction["absolute_error"]),
+                    "inside_fixed_10pct": (
+                        abs(float(prediction["actual"]) - float(prediction["forecast"]))
+                        <= abs(float(prediction["forecast"])) * 0.10
+                    ),
                     "previous_actual": rounded(prediction.get("previous_actual")),
                 }
             )
@@ -333,6 +349,11 @@ def scoreboard(rows: list[dict[str, Any]], selected_rows: list[dict[str, Any]]) 
                 "scope_wins": wins[(target, model_name)],
                 "median_weighted_mase": median_optional([row["weighted_mase"] for row in model_rows]),
                 "median_weighted_mae": median_optional([row["weighted_mae"] for row in model_rows]),
+                "median_weighted_within10_accuracy_pct": median_optional(
+                    [row["weighted_within10_accuracy_pct"] for row in model_rows],
+                    2,
+                ),
+                "target_met_scope_count": sum(1 for row in model_rows if row.get("target_met")),
                 "median_h1_mae": median_optional([row["h1_mae"] for row in model_rows]),
                 "median_h1_wape_pct": median_optional([row["h1_wape_pct"] for row in model_rows], 2),
                 "median_h3_mae": median_optional([row["h3_mae"] for row in model_rows]),
@@ -350,8 +371,13 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         path.write_text("", encoding="utf-8")
         return
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
     with path.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -402,6 +428,7 @@ def write_prometheus_snapshot(path: Path, report: dict[str, Any], selected_rows:
         ("ticketing_forecast_model_mae", "mae"),
         ("ticketing_forecast_model_wape_percent", "wape_pct"),
         ("ticketing_forecast_model_mase", "mase"),
+        ("ticketing_forecast_model_within10_accuracy_percent", "within10_accuracy_pct"),
     ]:
         lines.extend(
             [
@@ -446,7 +473,8 @@ def print_report(report: dict[str, Any]) -> None:
                 f"{row['model']}: wins={row['scope_wins']}, "
                 f"median weighted MASE={row['median_weighted_mase']}, "
                 f"median H1 MAE={row['median_h1_mae']}, "
-                f"median H1 WAPE={row['median_h1_wape_pct']}%"
+                f"median H1 WAPE={row['median_h1_wape_pct']}%, "
+                f"median within ±10%={row['median_weighted_within10_accuracy_pct']}%"
             )
         print("Top promoted scope models:")
         for row in best_rows[:8]:

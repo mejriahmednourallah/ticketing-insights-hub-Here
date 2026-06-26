@@ -63,13 +63,19 @@ const prediction = {
     trend: 'stable' as const,
     businessInsight: 'Tendance stable : le délai de résolution devrait rester proche du niveau récent.',
     reliability: 'Élevée' as const,
+    qualityTargetMet: true,
+    qualityWarning: null,
   },
   model: {
     name: 'damped_holt' as const,
     backtestMaeDays: 100,
     metricsByHorizon: {
-      '1': { smape: 0.22, mae: 100, points: 12 },
+      '1': { smape: 0.22, mae: 100, points: 12, within10Accuracy: 0.88, targetMet: true },
     },
+    targetRangePct: 10,
+    targetAccuracyPct: 85,
+    weightedWithin10Accuracy: 0.88,
+    targetMet: true,
     trainingStart: '2023-01-01',
     trainingEnd: '2026-05-01',
     historyMonths: 41,
@@ -101,6 +107,15 @@ const prediction = {
     ],
     confidenceNote: "Lecture fiable : les derniers backtests se trompent en moyenne d'environ 3.2 jours.",
   },
+  aiInterpretation: {
+    available: true,
+    source: 'groq' as const,
+    headline: 'Le délai reste maîtrisé.',
+    interpretation: 'L’IA lit une stabilité portée par le rythme récent et la saisonnalité.',
+    why: ['Le dernier trimestre reste proche du niveau attendu.'],
+    risks: ['Le mois en cours reste incomplet.'],
+    generatedAt: '2026-06-26T08:00:00Z',
+  },
 };
 
 const volumePrediction = {
@@ -124,13 +139,19 @@ const volumePrediction = {
     trend: 'stable' as const,
     businessInsight: 'Volume stable : le nombre de nouveaux tickets devrait rester proche du niveau récent.',
     reliability: 'Modérée' as const,
+    qualityTargetMet: false,
+    qualityWarning: 'Ce périmètre est en dessous de l’objectif 85%; lecture à utiliser avec prudence.',
   },
   model: {
     name: 'seasonal_naive' as const,
     backtestMaeTickets: 8.4,
     metricsByHorizon: {
-      '1': { smape: 0.11, mae: 8.4, points: 12 },
+      '1': { smape: 0.11, mae: 8.4, points: 12, within10Accuracy: 0.72, targetMet: false },
     },
+    targetRangePct: 10,
+    targetAccuracyPct: 85,
+    weightedWithin10Accuracy: 0.72,
+    targetMet: false,
     trainingStart: '2023-01-01',
     trainingEnd: '2026-05-01',
     historyMonths: 41,
@@ -200,10 +221,12 @@ describe('executive interface', () => {
     expect(screen.getByText('Tickets prévus')).toBeInTheDocument();
     expect(screen.getByText('Tendance tickets')).toBeInTheDocument();
     expect(screen.getAllByText('Pourquoi cette prévision ?')).toHaveLength(2);
-    expect(screen.getAllByText('Interprétation')).toHaveLength(2);
-    expect(screen.getAllByText(/La lecture métier/i)).toHaveLength(2);
-    expect(screen.getAllByText(/Testée sur les anciens mois/i)).toHaveLength(2);
-    expect(screen.getByText('82%')).toBeInTheDocument();
+    expect(screen.getByText('Interprétation IA')).toBeInTheDocument();
+    expect(screen.getByText('Lecture automatique')).toBeInTheDocument();
+    expect(screen.getAllByText('Score plage ±10%')).toHaveLength(2);
+    expect(screen.getByText('88%')).toBeInTheDocument();
+    expect(screen.getByText('72%')).toBeInTheDocument();
+    expect(screen.getByText(/Ce périmètre est en dessous de l’objectif 85%/i)).toBeInTheDocument();
     expect(screen.queryByText('0%')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Projet' }));

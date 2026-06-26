@@ -4,5 +4,6 @@ numpy==2.2.6
 pandas==2.2.3
 PyJWT==2.10.1
 prometheus-client==0.22.1
+scikit-learn==1.5.2
 statsmodels==0.14.4
 uvicorn[standard]==0.34.2
